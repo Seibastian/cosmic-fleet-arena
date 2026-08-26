@@ -12,10 +12,13 @@ import {
   baseUpgradeCost,
   branchOptions,
   getTier,
+  DEFENSE_COSTS,
   type RaceDef,
   type Tier,
   type UpKey,
   type CBMode,
+  type ResType,
+  type DefenseType,
 } from "./data";
 import { SYSTEMS, SYSTEM_ORDER, type SysKey } from "./systems";
 
@@ -112,6 +115,9 @@ interface Ship {
   wander: number;
   hitFlash: number;
   deadT: number;
+  shieldPierce: boolean;
+  bank: number;
+  pierceOwned: boolean;
 }
 
 interface Bullet {
@@ -130,6 +136,7 @@ interface Bullet {
   kind: string;
   splash: number;
   trail: number[];
+  shieldPierce: boolean;
 }
 
 interface Asteroid {
@@ -154,6 +161,7 @@ interface Resource {
   radius: number;
   phase: number;
   anti: boolean;
+  resType: ResType;
 }
 
 interface Trap {
@@ -203,6 +211,22 @@ interface Base {
   level: number;
   pool: number;
   lastHitBy: number;
+  alive: boolean;
+}
+
+interface DefenseStructure {
+  id: number;
+  raceId: number;
+  x: number;
+  y: number;
+  type: DefenseType;
+  hp: number;
+  maxHp: number;
+  shield: number;
+  maxShield: number;
+  angle: number;
+  fireCd: number;
+  radius: number;
 }
 
 export interface Standing {
@@ -211,6 +235,7 @@ export interface Standing {
   color: string;
   score: number;
   baseLv: number;
+  alive: boolean;
 }
 
 export interface HudState {
@@ -249,6 +274,13 @@ export interface HudState {
   lowHp: number;
   pendingBranch: { opts: { id: string; name: string; desc: string }[]; t: number } | null;
   ended: { winner: number; reason: string; standings: Standing[] } | null;
+  shieldPierce: boolean;
+  pierceOwned: boolean;
+  bank: number;
+  defenses: { type: DefenseType; hp: number; maxHp: number; shield: number; maxShield: number }[];
+  canBuild: boolean;
+  buildCost: number;
+  aliveTeams: { name: string; color: string; alive: boolean }[];
 }
 
 const rand01 = Math.random;
@@ -265,6 +297,7 @@ export class Sim {
   stars: Star[] = [];
   holes: Hole[] = [];
   bases: Base[] = [];
+  structures: DefenseStructure[] = [];
   starsBg: { x: number; y: number; r: number; d: number; tw: number }[] = [];
   nebulas: { x: number; y: number; r: number; c: string }[] = [];
   player!: Ship;
@@ -320,6 +353,7 @@ export class Sim {
       level: 1,
       pool: 0,
       lastHitBy: -1,
+      alive: true,
     }));
 
     for (let i = 0; i < 900; i++) {
@@ -358,7 +392,43 @@ export class Sim {
       this.spawnAnti(rng.range(300, WORLD - 300), rng.range(300, WORLD - 300), false);
     for (const z of this.zones()) {
       for (let i = 0; i < 26; i++)
-        for (const rid of z.races) this.spawnResource(z.x, z.y, z.r, rid);
+        for (const rid of z.races) this.spawnResource(z.x, z.y, z.r, rid, "stellar");
+    }
+    for (const st of this.stars) {
+      for (let i = 0; i < 18; i++) {
+        const a = rng.angle();
+        const d = rng.range(st.r * 1.2, st.r * 3.2);
+        this.resources.push({
+          x: st.x + Math.cos(a) * d,
+          y: st.y + Math.sin(a) * d,
+          vx: rng.range(-4, 4),
+          vy: rng.range(-4, 4),
+          raceId: -1,
+          amount: 2 + Math.floor(rng.next() * 3),
+          radius: 11,
+          phase: rng.angle(),
+          anti: false,
+          resType: "solar",
+        });
+      }
+    }
+    for (const h of this.holes) {
+      for (let i = 0; i < 12; i++) {
+        const a = rng.angle();
+        const d = rng.range(h.r * 2, h.r * 6);
+        this.resources.push({
+          x: h.x + Math.cos(a) * d,
+          y: h.y + Math.sin(a) * d,
+          vx: rng.range(-3, 3),
+          vy: rng.range(-3, 3),
+          raceId: -1,
+          amount: 2 + Math.floor(rng.next() * 3),
+          radius: 13,
+          phase: rng.angle(),
+          anti: false,
+          resType: "dark",
+        });
+      }
     }
 
     for (const race of RACES) {
@@ -385,7 +455,13 @@ export class Sim {
     ];
   }
 
-  spawnResource(x: number, y: number, spreadR: number, raceId: number) {
+  spawnResource(
+    x: number,
+    y: number,
+    spreadR: number,
+    raceId: number,
+    resType: ResType = "mineral",
+  ) {
     const a = this.rng.angle();
     const d = this.rng.next() * spreadR;
     this.resources.push({
@@ -398,6 +474,7 @@ export class Sim {
       radius: 10,
       phase: this.rng.angle(),
       anti: false,
+      resType,
     });
   }
 
@@ -412,6 +489,7 @@ export class Sim {
       radius: 12,
       phase: rand01() * TAU,
       anti: true,
+      resType: "dark",
     });
   }
 
@@ -507,6 +585,9 @@ export class Sim {
       wander: this.rng.angle(),
       hitFlash: 0,
       deadT: 0,
+      shieldPierce: false,
+      bank: 0,
+      pierceOwned: false,
     };
     this.syncSystems(s);
     this.applyTier(s);
@@ -620,12 +701,6 @@ export class Sim {
       if (this.player.pendingBranch.t <= 0) this.chooseBranch(0);
     }
 
-    this.session.t -= dt;
-    if (this.session.t <= 0) {
-      this.endSession("time");
-      return;
-    }
-
     for (const base of this.bases) base.rot += dt * 0.15;
     for (const h of this.holes) h.rot -= dt * 0.6;
     for (const st of this.stars) st.rot += dt * 0.05;
@@ -640,7 +715,7 @@ export class Sim {
     for (const s of this.ships) {
       if (!s.alive) {
         s.respawnT -= dt;
-        if (s.respawnT <= 0 && !s.isPlayer) this.respawn(s);
+        if (s.respawnT <= 0 && !s.isPlayer && this.bases[s.raceId]!.alive) this.respawn(s);
         continue;
       }
       const cmd = s.isPlayer ? this.playerCmd : this.aiCmd(s, dt);
@@ -679,13 +754,49 @@ export class Sim {
     this.updateAsteroids(dt);
     this.updateResources(dt);
     this.updateBases(dt);
+    this.updateStructures(dt);
     this.shipCollisions();
+    this.checkDomination();
 
-    if (this.resources.length < 460 && this.rng.next() < 0.03) {
+    if (this.resources.length < 560 && this.rng.next() < 0.04) {
       const zs = this.zones();
       const z = zs[Math.floor(this.rng.next() * zs.length)]!;
       const rid = z.races[Math.floor(this.rng.next() * z.races.length)]!;
-      this.spawnResource(z.x, z.y, z.r, rid);
+      this.spawnResource(z.x, z.y, z.r, rid, "stellar");
+    }
+    if (this.rng.next() < 0.008) {
+      const st = this.stars[Math.floor(this.rng.next() * this.stars.length)]!;
+      const a = this.rng.angle();
+      const d = this.rng.range(st.r * 1.2, st.r * 3.2);
+      this.resources.push({
+        x: st.x + Math.cos(a) * d,
+        y: st.y + Math.sin(a) * d,
+        vx: this.rng.range(-3, 3),
+        vy: this.rng.range(-3, 3),
+        raceId: -1,
+        amount: 2 + Math.floor(this.rng.next() * 2),
+        radius: 11,
+        phase: this.rng.angle(),
+        anti: false,
+        resType: "solar",
+      });
+    }
+    if (this.rng.next() < 0.006) {
+      const h = this.holes[Math.floor(this.rng.next() * this.holes.length)]!;
+      const a = this.rng.angle();
+      const d = this.rng.range(h.r * 2, h.r * 6);
+      this.resources.push({
+        x: h.x + Math.cos(a) * d,
+        y: h.y + Math.sin(a) * d,
+        vx: this.rng.range(-2, 2),
+        vy: this.rng.range(-2, 2),
+        raceId: -1,
+        amount: 2 + Math.floor(this.rng.next() * 2),
+        radius: 13,
+        phase: this.rng.angle(),
+        anti: false,
+        resType: "dark",
+      });
     }
     if (this.asteroids.length < 110 && this.rng.next() < 0.008) {
       this.spawnAsteroid(this.rng.range(100, WORLD - 100), this.rng.range(100, WORLD - 100));
@@ -714,11 +825,15 @@ export class Sim {
   }
 
   endSession(reason: string) {
+    if (this.session.phase === "ended") return;
     this.session.phase = "ended";
     this.session.reason = reason;
-    this.ev({ type: "win", text: reason });
+    if (reason === "domination") {
+      const alive = this.bases.filter((b) => b.alive);
+      if (alive.length === 1) this.session.winner = alive[0]!.raceId;
+    }
+    this.ev({ type: "domination", text: reason });
   }
-
   private control(s: Ship, cmd: Cmd, dt: number) {
     if (s.stunT > 0) {
       s.thrusting = 0;
@@ -915,6 +1030,7 @@ export class Sim {
         kind: w.kind,
         splash: w.splash,
         trail: [],
+        shieldPierce: s.shieldPierce,
       });
     }
     s.vx -= Math.cos(s.angle) * 12 * (w.dmgMul / s.tier.mass);
@@ -970,7 +1086,7 @@ export class Sim {
           if (!s.alive || s.raceId === b.raceId || s.id === b.ownerId || s.invulnT > 0) continue;
           if (Math.hypot(s.x - b.x, s.y - b.y) < s.radius + b.radius) {
             const owner = this.ships.find((o) => o.id === b.ownerId) ?? null;
-            this.damage(s, b.dmg, owner, false);
+            this.damage(s, b.dmg, owner, false, b.shieldPierce);
             s.burn += b.burn;
             if (owner) {
               owner.comboN = Math.min(8, owner.comboN + 1);
@@ -1020,23 +1136,170 @@ export class Sim {
 
   baseAt(x: number, y: number, attackerRace: number): Base | null {
     for (const base of this.bases) {
-      if (base.raceId === attackerRace) continue;
+      if (!base.alive || base.raceId === attackerRace) continue;
       if (Math.hypot(base.x - x, base.y - y) < base.radius) return base;
     }
     return null;
   }
 
   hitBase(base: Base, dmg: number, byRace: number) {
+    if (!base.alive) return;
     base.energy -= dmg;
     base.lastHitBy = byRace;
     if (base.energy <= 0 && this.session.phase === "live") {
-      this.session.winner = byRace >= 0 ? byRace : base.raceId;
-      this.endSession("base");
+      base.alive = false;
+      base.energy = 0;
+      this.ev({ type: "explode", x: base.x, y: base.y, raceId: base.raceId, size: 300 });
+      for (const s of this.ships) {
+        if (s.alive && s.raceId === base.raceId) {
+          this.kill(s, null);
+        }
+      }
+      if (base.raceId === this.player.raceId) {
+        this.session.winner = byRace >= 0 ? byRace : -1;
+        this.endSession("eliminated");
+      }
+    }
+  }
+
+  /* ---------------- hakimiyet ---------------- */
+  checkDomination() {
+    if (this.session.phase !== "live") return;
+    const aliveBases = this.bases.filter((b) => b.alive);
+    if (aliveBases.length <= 1) {
+      this.endSession("domination");
+    }
+  }
+
+  /* ---------------- savunma yapıları ---------------- */
+  buildDefense(type: DefenseType): string | null {
+    const p = this.player;
+    const base = this.bases[p.raceId]!;
+    if (!base.alive) return "Üs yok edildi";
+    const d = Math.hypot(p.x - base.x, p.y - base.y);
+    if (d > base.radius + 300) return "Üse çok uzak";
+    const cost = DEFENSE_COSTS[type];
+    if (p.bank < cost.resources) return `Hammadde yetersiz (${cost.resources} gerekli)`;
+    const angle = Math.atan2(p.y - base.y, p.x - base.x);
+    const buildDist = base.radius + 120;
+    const sx = base.x + Math.cos(angle) * buildDist;
+    const sy = base.y + Math.sin(angle) * buildDist;
+    for (const st of this.structures) {
+      if (st.raceId === p.raceId && Math.hypot(st.x - sx, st.y - sy) < 60) return "Çok yakın";
+    }
+    p.bank -= cost.resources;
+    this.structures.push({
+      id: this.nextId++,
+      raceId: p.raceId,
+      x: sx,
+      y: sy,
+      type,
+      hp: cost.hp,
+      maxHp: cost.hp,
+      shield: cost.shield,
+      maxShield: cost.shield,
+      angle,
+      fireCd: 0,
+      radius: type === "fortress" ? 32 : type === "shield" ? 28 : 22,
+    });
+    this.ev({ type: "baseup", x: sx, y: sy, raceId: p.raceId });
+    return null;
+  }
+
+  updateStructures(dt: number) {
+    for (let i = this.structures.length - 1; i >= 0; i--) {
+      const st = this.structures[i]!;
+      if (st.type === "shield" && st.shield < st.maxShield) {
+        st.shield = Math.min(st.maxShield, st.shield + 4 * dt);
+      }
+      if (st.type === "fortress") {
+        st.fireCd -= dt;
+        if (st.fireCd <= 0) {
+          let nearest: Ship | null = null;
+          let nearDist = 380;
+          const near = this.shipGrid.query(st.x, st.y, nearDist, this.qShip);
+          for (const s of near) {
+            if (!s.alive || s.raceId === st.raceId || s.invulnT > 0) continue;
+            const dd = Math.hypot(s.x - st.x, s.y - st.y);
+            if (dd < nearDist) {
+              nearDist = dd;
+              nearest = s;
+            }
+          }
+          if (nearest) {
+            const ang = Math.atan2(nearest.y - st.y, nearest.x - st.x);
+            st.angle = ang;
+            st.fireCd = 1.2;
+            this.bullets.push({
+              x: st.x + Math.cos(ang) * st.radius,
+              y: st.y + Math.sin(ang) * st.radius,
+              vx: Math.cos(ang) * 520,
+              vy: Math.sin(ang) * 520,
+              dmg: 22,
+              life: 1.4,
+              raceId: st.raceId,
+              ownerId: -1,
+              radius: 3,
+              homing: 0,
+              pierce: 0,
+              burn: 0,
+              kind: "pulse",
+              splash: 0,
+              trail: [],
+              shieldPierce: false,
+            });
+            this.ev({ type: "fire", x: st.x, y: st.y, raceId: st.raceId });
+          }
+        }
+      }
+      let dead = false;
+      for (let bi = this.bullets.length - 1; bi >= 0; bi--) {
+        const b = this.bullets[bi]!;
+        if (b.raceId === st.raceId) continue;
+        if (Math.hypot(b.x - st.x, b.y - st.y) < st.radius + b.radius) {
+          let hitDmg = b.dmg;
+          if (st.shield > 0 && !b.shieldPierce) {
+            const abs = Math.min(st.shield, hitDmg);
+            st.shield -= abs;
+            hitDmg -= abs;
+          }
+          st.hp -= hitDmg;
+          this.ev({ type: "defensehit", x: b.x, y: b.y, raceId: st.raceId });
+          if (b.pierce > 0) b.pierce--;
+          else {
+            this.bullets.splice(bi, 1);
+          }
+          if (st.hp <= 0) {
+            this.ev({ type: "explode", x: st.x, y: st.y, raceId: st.raceId, size: st.radius * 2 });
+            dead = true;
+            break;
+          }
+        }
+      }
+      if (dead) this.structures.splice(i, 1);
+    }
+    for (const st of this.structures) {
+      const near = this.shipGrid.query(st.x, st.y, st.radius + 80, this.qShip);
+      for (const s of near) {
+        if (!s.alive || s.raceId === st.raceId) continue;
+        if (Math.hypot(s.x - st.x, s.y - st.y) < st.radius + s.radius) {
+          const dx = s.x - st.x,
+            dy = s.y - st.y;
+          const dd = Math.hypot(dx, dy) || 1;
+          s.x += (dx / dd) * 4;
+          s.y += (dy / dd) * 4;
+          if (st.type === "shield") {
+            s.vx *= 0.6;
+            s.vy *= 0.6;
+            s.slowT = Math.max(s.slowT, 0.3);
+          }
+        }
+      }
     }
   }
 
   /* ---------------- hasar / ölüm ---------------- */
-  damage(s: Ship, amount: number, from: Ship | null, silent: boolean) {
+  damage(s: Ship, amount: number, from: Ship | null, silent: boolean, shieldPierce = false) {
     if (!s.alive || amount <= 0 || s.invulnT > 0) return;
     s.shieldDelay = 1.6;
     s.hitFlash = 1;
@@ -1050,7 +1313,7 @@ export class Sim {
     }
 
     const effMax = this.effShieldMax(s);
-    if (s.shield > 0) {
+    if (s.shield > 0 && !shieldPierce) {
       const abs = Math.min(s.shield, amount);
       s.shield -= abs;
       amount -= abs;
@@ -1086,6 +1349,7 @@ export class Sim {
         radius: 10,
         phase: 0,
         anti: false,
+        resType: "mineral",
       });
     }
     if (killer && killer.alive) {
@@ -1171,13 +1435,37 @@ export class Sim {
     }
   }
 
-  spendUpgrade(k: UpKey) {
+  spendUpgrade(k: UpKey): string | null {
     const p = this.player;
-    if (p.upPoints <= 0 || p.up[k] >= 12) return false;
-    p.upPoints--;
+    if (p.up[k] >= 12) return "Maksimum";
+    if (p.upPoints <= 0) {
+      const cost = 14;
+      if (p.bank < cost) return "Puan/hammadde yok";
+      p.bank -= cost;
+    } else {
+      p.upPoints--;
+    }
     p.up[k]++;
     this.applyTier(p);
-    return true;
+    return null;
+  }
+
+  static readonly PIERCE_COST = 35;
+  buyPiercingAmmo(): string | null {
+    const p = this.player;
+    if (p.pierceOwned) {
+      p.shieldPierce = !p.shieldPierce;
+      this.toast = p.shieldPierce ? "Kalkan Delici AÇIK" : "Kalkan Delici KAPALI";
+      this.toastT = 2;
+      return null;
+    }
+    if (p.bank < Sim.PIERCE_COST) return `Hammadde ${Sim.PIERCE_COST} gerekli`;
+    p.bank -= Sim.PIERCE_COST;
+    p.pierceOwned = true;
+    p.shieldPierce = true;
+    this.toast = "Kalkan Delici Mühimmat satın alındı";
+    this.toastT = 2.6;
+    return null;
   }
 
   spendSystem(k: SysKey): string | null {
@@ -1226,7 +1514,7 @@ export class Sim {
     if (mineHold && lv > 0 && s.stunT <= 0) {
       const near = this.resGrid.query(s.x, s.y, beamRange, this.qRes);
       const candidates = near
-        .filter((r) => r.raceId === s.raceId)
+        .filter((r) => !r.anti)
         .sort(
           (a, b) => (a.x - s.x) ** 2 + (a.y - s.y) ** 2 - ((b.x - s.x) ** 2 + (b.y - s.y) ** 2),
         );
@@ -1239,7 +1527,13 @@ export class Sim {
         r.vx += ((s.x - r.x) / d) * pull * dt * 60;
         r.vy += ((s.y - r.y) / d) * pull * dt * 60;
         const grabR = s.radius + r.radius + 14;
-        if (d < grabR) this.collect(s, r, 1 + lv * 0.5);
+        if (d < grabR) {
+          if (r.resType === "solar" && Math.random() < dt * 4)
+            this.ev({ type: "solarmine", x: r.x, y: r.y });
+          else if (r.resType === "dark" && Math.random() < dt * 4)
+            this.ev({ type: "darkmine", x: r.x, y: r.y });
+          this.collect(s, r, 1 + lv * 0.5);
+        }
       }
     }
 
@@ -1247,7 +1541,7 @@ export class Sim {
     const nearAll = this.resGrid.query(s.x, s.y, magnetR + 60, this.qRes);
     for (const r of nearAll) {
       const d = Math.hypot(r.x - s.x, r.y - s.y);
-      if (d < magnetR && r.raceId === s.raceId) {
+      if (d < magnetR && (r.raceId === s.raceId || r.raceId === -1)) {
         const pull = 260 / Math.max(40, d);
         r.vx += ((s.x - r.x) / d) * pull * dt * 26;
         r.vy += ((s.y - r.y) / d) * pull * dt * 26;
@@ -1293,6 +1587,15 @@ export class Sim {
     r.amount -= take;
     this.grantXp(s, take * 5 * mult);
     this.ev({ type: "hit", x: r.x, y: r.y, raceId: s.raceId, pitch: 2.4 });
+    if (s.isPlayer) {
+      const label =
+        r.resType === "solar" ? "☀" : r.resType === "dark" ? "◉" : r.raceId >= 0 ? "◆" : "◆";
+      this.ev({ type: "collect", x: r.x, y: r.y, text: `${label}+${take}`, raceId: s.raceId });
+      if (s.cargo >= cap) {
+        this.toast = "KARGO DOLU — üsse dön!";
+        this.toastT = 2;
+      }
+    }
     if (r.amount <= 0) this.removeResource(r);
   }
 
@@ -1304,10 +1607,12 @@ export class Sim {
   deliver(s: Ship) {
     if (s.cargo <= 0 && s.anti <= 0) return;
     const base = this.bases[s.raceId]!;
-    if (Math.hypot(s.x - base.x, s.y - base.y) < base.radius) {
+    if (base.alive && Math.hypot(s.x - base.x, s.y - base.y) < base.radius) {
       if (s.cargo > 0) {
         base.pool += s.cargo;
         base.energy = Math.min(base.energyMax, base.energy + s.cargo * 24);
+        const toBank = Math.ceil(s.cargo * 0.6);
+        s.bank += toBank;
         this.grantXp(s, s.cargo * 16);
         s.score += s.cargo * 6;
         s.cargo = 0;
@@ -1316,6 +1621,7 @@ export class Sim {
       if (s.anti > 0) {
         s.upPoints += s.anti;
         base.pool += s.anti * 120;
+        s.bank += s.anti * 8;
         s.anti = 0;
         this.ev({ type: "deliver", x: base.x, y: base.y, raceId: base.raceId, pitch: 1.5 });
       }
@@ -1358,6 +1664,7 @@ export class Sim {
               radius: 10,
               phase: 0,
               anti: false,
+              resType: "mineral",
             });
           }
         }
@@ -1369,6 +1676,7 @@ export class Sim {
   /* ---------------- üsler ---------------- */
   updateBases(dt: number) {
     for (const base of this.bases) {
+      if (!base.alive) continue;
       const near = this.shipGrid.query(base.x, base.y, base.radius + 260, this.qShip);
       for (const s of near) {
         if (!s.alive || s.invulnT > 0) continue;
@@ -1686,7 +1994,7 @@ export class Sim {
         bdist = Infinity;
       const nearR = this.resGrid.query(s.x, s.y, 900, this.qRes);
       for (const r of nearR) {
-        if (r.raceId !== s.raceId || r.anti) continue;
+        if (r.anti) continue;
         const d = Math.hypot(r.x - s.x, r.y - s.y);
         if (d < bdist) {
           bdist = d;
@@ -1718,6 +2026,7 @@ export class Sim {
         color: r.color,
         score: fleet.reduce((acc, s) => acc + s.score, 0),
         baseLv: this.bases[r.id]!.level,
+        alive: this.bases[r.id]!.alive,
       };
     }).sort((a, b) => b.score - a.score);
     const sysHud: HudState["sys"] = {} as HudState["sys"];
@@ -1767,7 +2076,7 @@ export class Sim {
       kills: p.kills,
       score: p.score,
       anti: p.anti,
-      roundLeft: Math.max(0, this.session.t),
+      roundLeft: Math.round(this.time),
       sys: sysHud,
       dead: !p.alive,
       deathInfo: this.deathInfo,
@@ -1782,6 +2091,21 @@ export class Sim {
         this.session.phase === "ended"
           ? { winner: this.session.winner, reason: this.session.reason, standings: board }
           : null,
+      shieldPierce: p.shieldPierce,
+      bank: Math.floor(p.bank),
+      pierceOwned: p.pierceOwned,
+      defenses: this.structures
+        .filter((st) => st.raceId === p.raceId)
+        .map((st) => ({
+          type: st.type,
+          hp: st.hp,
+          maxHp: st.maxHp,
+          shield: st.shield,
+          maxShield: st.maxShield,
+        })),
+      canBuild: base.alive && Math.hypot(p.x - base.x, p.y - base.y) < base.radius + 300,
+      buildCost: 0,
+      aliveTeams: board.map((b) => ({ name: b.name, color: b.color, alive: b.alive })),
     };
   }
 }

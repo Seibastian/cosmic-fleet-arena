@@ -1,6 +1,15 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { RACES, UP_KEYS, UP_LABELS, racePalette, type UpKey } from "@/game/data";
+import {
+  DEFENSE_COSTS,
+  DEFENSE_LABELS,
+  RACES,
+  UP_KEYS,
+  UP_LABELS,
+  racePalette,
+  type DefenseType,
+  type UpKey,
+} from "@/game/data";
 import { SYSTEMS, SYSTEM_ORDER, type SysKey } from "@/game/systems";
 import { Game } from "@/game/game";
 import type { HudState } from "@/game/sim";
@@ -58,10 +67,10 @@ function Bar({ value, className }: { value: number; className: string }) {
 function ShipIcon({ raceId, className }: { raceId: number; className?: string }) {
   const race = RACES[raceId]!;
   const shapes = [
-    "M22,0 L-4,12 L-8,0 L-4,-12 Z",
-    "M22,0 L4,8 L-12,16 L-8,0 L-12,-16 L4,-8 Z",
-    "M20,0 L6,7 L-14,14 L-16,0 L-14,-14 L6,-7 Z",
-    "M24,0 L8,7 L-6,10 L-16,18 L-20,0 L-16,-18 L-6,-10 L8,-7 Z",
+    "M46,0 L7,3 L-5,11 L-21,19 L-12.5,6 L-15.5,0 L-12.5,-6 L-21,-19 L-5,-11 Z",
+    "M29,0 L19,8.5 L6,14.5 L-7,23.5 L-19,16.5 L-23,7 L-19,0 L-23,-7 L-19,-16.5 L-7,-23.5 L6,-14.5 L19,-8.5 Z",
+    "M24,0 L21,10.5 L9,13.5 L9,22.5 L-8,22.5 L-14.5,12 L-25,12 L-25,-12 L-14.5,-12 L-8,-22.5 L9,-22.5 L9,-13.5 L21,-10.5 Z",
+    "M38,0 L17,3 L25,10 L8,11.5 L-2,19 L-14,26.5 L-11,12.5 L-26,9.5 L-17,0 L-26,-9.5 L-11,-12.5 L-14,-26.5 L-2,-19 L8,-11.5 L25,-10 L17,-3 Z",
   ];
   return (
     <svg viewBox="-26 -22 52 44" className={className}>
@@ -292,19 +301,24 @@ function MenuScreen({
           Seçtiğin ırk {race.name}: {race.passive.toLowerCase()}.
         </p>
 
-        <div className="mt-8 grid max-w-3xl gap-2 text-center text-xs text-muted-foreground sm:grid-cols-3">
+        <div className="mt-8 grid max-w-3xl gap-2 text-center text-xs text-muted-foreground sm:grid-cols-2">
           <p>
             <b className="text-foreground">Fare</b> nişan ·{" "}
             <b className="text-foreground">Sol tık</b> ateş ·{" "}
-            <b className="text-foreground">Sağ tık/W</b> itki
+            <b className="text-foreground">Sağ tık/W</b> itki · <b className="text-foreground">E</b>{" "}
+            maden ışını
           </p>
           <p>
-            <b className="text-foreground">Shift</b> turbo · <b className="text-foreground">E</b>{" "}
-            maden ışını · <b className="text-foreground">Q/F/C/X</b> sistemler
+            <b className="text-foreground">Q/F/C/X</b> sistemler ·{" "}
+            <b className="text-foreground">R</b> kalkan delici ·{" "}
+            <b className="text-foreground">B+1/2/3</b> üs savunması inşa et
           </p>
           <p>
-            <b className="text-foreground">1-6</b> geliştirme ·{" "}
-            <b className="text-foreground">Esc</b> menü · madeni teslim et, seviye atla
+            Güneşten ☀ · karadeliklerden ◉ · yıldız bölgelerinden ◆ hammadde topla, üsse teslim et
+          </p>
+          <p>
+            <b className="text-gold">Zafer:</b> tüm düşman üslerini yok edip hakimiyet kur — kendi
+            üssünü duvar, kalkan ve kalelerle koru
           </p>
         </div>
 
@@ -325,14 +339,19 @@ function UpgradePanel({
   hud,
   onUpgrade,
   onSystem,
+  onBuild,
+  onPierce,
   sysMsg,
 }: {
   hud: HudState;
   onUpgrade: (k: UpKey) => void;
   onSystem: (k: SysKey) => void;
+  onBuild: (t: DefenseType) => void;
+  onPierce: () => void;
   sysMsg: string | null;
 }) {
-  const [tab, setTab] = useState<"ship" | "sys">("ship");
+  const [tab, setTab] = useState<"ship" | "sys" | "base">("ship");
+  const bank = hud.bank;
   return (
     <div className="hud-panel absolute bottom-4 left-4 w-[320px] p-3">
       <div className="mb-2 flex items-center justify-between">
@@ -343,9 +362,12 @@ function UpgradePanel({
           <TabBtn active={tab === "sys"} onClick={() => setTab("sys")}>
             Sistemler
           </TabBtn>
+          <TabBtn active={tab === "base"} onClick={() => setTab("base")}>
+            Üs
+          </TabBtn>
         </div>
         <span className="text-[11px] text-muted-foreground">
-          {hud.upPoints} puan{hud.anti > 0 ? ` · ${hud.anti} ⚛` : ""}
+          {hud.upPoints} puan · ⛭{bank}
         </span>
       </div>
       {sysMsg && (
@@ -370,7 +392,8 @@ function UpgradePanel({
             </div>
             <button
               onClick={() => onUpgrade(k)}
-              disabled={hud.upPoints <= 0 || hud.up[k] >= 12}
+              disabled={hud.up[k] >= 12 || (hud.upPoints <= 0 && hud.bank < 14)}
+              title={hud.upPoints <= 0 ? `Puansız: 14 hammadde` : "Puan harca"}
               className="h-6 w-6 rounded border border-border bg-secondary text-sm leading-none text-foreground transition-colors hover:border-gold hover:text-gold disabled:opacity-35"
             >
               +
@@ -412,6 +435,72 @@ function UpgradePanel({
             </div>
           );
         })}
+      {tab === "base" && (
+        <>
+          <button
+            onClick={onPierce}
+            className={`mb-2 w-full rounded border px-2 py-1.5 text-left text-xs transition-colors ${
+              hud.shieldPierce
+                ? "border-fire bg-fire/15 text-fire"
+                : hud.pierceOwned
+                  ? "border-gold/70 text-gold hover:bg-gold/10"
+                  : "border-border text-foreground hover:border-gold hover:text-gold"
+            }`}
+          >
+            <b>[R] Kalkan Delici Mühimmat</b>
+            <span className="float-right">
+              {hud.pierceOwned ? (hud.shieldPierce ? "AÇIK" : "kapalı") : "⛭35 satın al"}
+            </span>
+            <div className="mt-0.5 text-[10px] text-muted-foreground">
+              Mermiler kalkanı yok sayar, doğrudan gövdeye hasar verir.
+            </div>
+          </button>
+          <div className="mb-1 text-[10px] uppercase tracking-widest text-muted-foreground">
+            Savunma İnşası [B+1/2/3] · üs yanındayken
+          </div>
+          {(Object.keys(DEFENSE_COSTS) as DefenseType[]).map((t, i) => {
+            const c = DEFENSE_COSTS[t];
+            const affordable = bank >= c.resources;
+            return (
+              <div key={t} className="mb-1.5 rounded border border-border/60 p-2">
+                <div className="flex items-center justify-between gap-2">
+                  <div className="min-w-0">
+                    <div className="truncate text-xs font-semibold">
+                      <b className="mr-1 text-muted-foreground">B+{i + 1}</b>
+                      {DEFENSE_LABELS[t]}
+                    </div>
+                    <div className="truncate text-[10px] text-muted-foreground">{c.desc}</div>
+                    <div className={`text-[10px] ${affordable ? "text-earth" : "text-fire"}`}>
+                      ⛭{c.resources} · HP {c.hp}
+                      {c.shield > 0 ? ` · Kalkan ${c.shield}` : ""}
+                    </div>
+                  </div>
+                  <button
+                    onClick={() => onBuild(t)}
+                    disabled={!hud.canBuild || !affordable}
+                    className="h-6 shrink-0 rounded border border-border bg-secondary px-2 text-[11px] leading-none transition-colors hover:border-gold hover:text-gold disabled:opacity-35"
+                  >
+                    İnşa et
+                  </button>
+                </div>
+              </div>
+            );
+          })}
+          {!hud.canBuild && (
+            <div className="text-[10px] text-muted-foreground">İnşa için üssüne yaklaş.</div>
+          )}
+          {hud.defenses.length > 0 && (
+            <div className="mt-1 border-t border-border/60 pt-1.5 text-[10px] text-muted-foreground">
+              Yapılar:{" "}
+              {hud.defenses.map((d, i) => (
+                <span key={i} className="mr-2">
+                  {DEFENSE_LABELS[d.type].split(" ")[0]} {Math.round((d.hp / d.maxHp) * 100)}%
+                </span>
+              ))}
+            </div>
+          )}
+        </>
+      )}
     </div>
   );
 }
@@ -514,16 +603,26 @@ function EndOverlay({
 }) {
   const end = hud.ended!;
   const winner = end.winner >= 0 ? RACES[end.winner]! : null;
+  const title =
+    end.reason === "domination"
+      ? "HAKİMİYET SAĞLANDI"
+      : end.reason === "eliminated"
+        ? "ÜSSÜN YIKILDI"
+        : "OTURUM BİTTİ";
   return (
     <div className="absolute inset-0 z-30 flex items-center justify-center bg-background/88 backdrop-blur-sm">
       <div className="w-full max-w-xl px-6 text-center">
         <h2
           className={`font-display text-3xl font-black ${stats?.won ? "text-gold" : "text-fire"}`}
         >
-          {end.reason === "base" ? "ÜS YOK EDİLDİ" : "OTURUM BİTTİ"}
+          {title}
         </h2>
         <p className="mt-2 text-sm text-muted-foreground">
-          {winner ? `Zafer: ${winner.name} (${winner.title})` : "Zaman doldu"}
+          {end.reason === "domination"
+            ? `${winner?.name ?? "?"} tüm düşman üslerini yok ederek galaksiye hükmetti`
+            : end.reason === "eliminated"
+              ? `Üssünü ${winner?.name ?? "düşman"} yok etti — takımın elendi`
+              : "Zaman doldu"}
         </p>
         {stats && (
           <p className="mt-1 text-xs text-gold">
@@ -534,7 +633,13 @@ function EndOverlay({
           {end.standings.map((st, i) => (
             <div
               key={st.raceId}
-              className={`mb-2 flex items-center gap-3 last:mb-0 ${end.winner === st.raceId ? "opacity-100" : "opacity-70"}`}
+              className={`mb-2 flex items-center gap-3 last:mb-0 ${
+                end.winner === st.raceId
+                  ? "opacity-100"
+                  : st.alive
+                    ? "opacity-70"
+                    : "opacity-35 line-through"
+              }`}
             >
               <span className="w-5 text-xs text-muted-foreground">{i + 1}.</span>
               <span className="w-20 text-sm font-semibold" style={{ color: st.color }}>
@@ -648,7 +753,27 @@ function GameView({
     return () => removeEventListener("keydown", onKey);
   }, [endedStats]);
 
-  const upgrade = useCallback((k: UpKey) => gameRef.current?.spendUpgrade(k), []);
+  const upgrade = useCallback((k: UpKey) => {
+    const err = gameRef.current?.spendUpgrade(k);
+    if (err) {
+      setSysMsg(err);
+      setTimeout(() => setSysMsg(null), 1600);
+    }
+  }, []);
+  const build = useCallback((t: DefenseType) => {
+    const err = gameRef.current?.buildDefense(t);
+    if (err) {
+      setSysMsg(err);
+      setTimeout(() => setSysMsg(null), 1600);
+    }
+  }, []);
+  const pierce = useCallback(() => {
+    const err = gameRef.current?.buyPiercingAmmo();
+    if (err) {
+      setSysMsg(err);
+      setTimeout(() => setSysMsg(null), 1600);
+    }
+  }, []);
   const system = useCallback((k: SysKey) => {
     const err = gameRef.current?.spendSystem(k);
     if (err) {
@@ -657,216 +782,263 @@ function GameView({
     }
   }, []);
 
-  if (!hud) {
-    return <main className="h-screen w-full bg-background" />;
-  }
-
-  const base = {
-    energy: hud.baseEnergy,
-    canUpgrade: hud.basePool >= hud.baseCost && hud.baseLv < 25,
-  };
+  const canUpgrade = !!hud && hud.basePool >= hud.baseCost && hud.baseLv < 25;
 
   return (
     <main className="relative h-screen w-full overflow-hidden bg-background">
       <canvas ref={canvasRef} className="absolute inset-0 h-full w-full cursor-crosshair" />
-
-      {/* düşük can vinyeti */}
-      <div
-        className="pointer-events-none absolute inset-0 z-10 transition-opacity duration-300"
-        style={{
-          opacity: hud.lowHp * 0.9,
-          background:
-            "radial-gradient(ellipse at center, transparent 52%, rgba(255,40,30,.38) 100%)",
-        }}
-      />
-
-      {paused && !endedStats && (
-        <div className="absolute inset-0 z-20 flex items-center justify-center bg-background/70 backdrop-blur-sm">
-          <div className="hud-panel p-6 text-center">
-            <h2 className="font-display text-xl font-bold text-gold">DURAKLATILDI</h2>
-            <div className="mt-4 flex flex-col gap-2">
-              <button
-                onClick={() => gameRef.current?.togglePaused()}
-                className="rounded border border-gold px-8 py-2 text-sm text-gold hover:bg-gold hover:text-background"
-              >
-                Devam Et
-              </button>
-              <button
-                onClick={onOpenSettings}
-                className="rounded border border-border px-8 py-2 text-sm text-muted-foreground hover:border-foreground hover:text-foreground"
-              >
-                Ayarlar
-              </button>
-              <button
-                onClick={onExit}
-                className="rounded border border-border px-8 py-2 text-sm text-muted-foreground hover:border-fire hover:text-fire"
-              >
-                Ana Menü
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {hud.pendingBranch && !hud.dead && (
-        <BranchModal hud={hud} onChoose={(i) => gameRef.current?.chooseBranch(i)} />
-      )}
-
-      {/* sol üst: gemi durumu */}
-      <div className="hud-panel absolute left-4 top-4 w-[288px] p-3">
-        <div className="flex items-baseline justify-between">
-          <span className="font-display text-sm font-bold">{hud.shipName}</span>
-          <span className="text-xs text-gold">Lv {hud.level}/25</span>
-        </div>
-        <div className="mb-2 text-[11px] uppercase tracking-widest text-muted-foreground">
-          {hud.raceName} · {hud.sizeClass}
-        </div>
-        <div className="space-y-1.5">
-          <Bar value={hud.hp / hud.maxHp} className="bg-gradient-to-r from-fire to-gold" />
-          <div className="flex justify-between text-[10px] text-muted-foreground">
-            <span>Gövde</span>
-            <span>
-              {Math.round(hud.hp)} / {hud.maxHp}
-            </span>
-          </div>
-          <Bar
-            value={hud.maxShield ? hud.shield / hud.maxShield : 0}
-            className="bg-gradient-to-r from-water to-air"
-          />
-          <div className="flex justify-between text-[10px] text-muted-foreground">
-            <span>Kalkan</span>
-            <span>
-              {Math.round(hud.shield)} / {hud.maxShield}
-            </span>
-          </div>
-          <Bar
-            value={hud.level >= 25 ? 1 : hud.xp / hud.xpNeed}
-            className="bg-gradient-to-r from-gold to-earth"
-          />
-          <div className="flex justify-between text-[10px] text-muted-foreground">
-            <span>Deneyim</span>
-            <span>{hud.level >= 25 ? "MAKS" : `${Math.round(hud.xp)} / ${hud.xpNeed}`}</span>
-          </div>
-          <Bar value={hud.cargo / hud.cargoCap} className="bg-gradient-to-r from-air to-earth" />
-          <div className="flex justify-between text-[10px] text-muted-foreground">
-            <span>{hud.resource}</span>
-            <span>
-              {hud.cargo} / {hud.cargoCap}
-              {hud.anti > 0 ? ` · ⚛${hud.anti}` : ""}
-            </span>
-          </div>
-          <Bar value={hud.boost / 100} className="bg-gradient-to-r from-water to-gold" />
-          <div className="flex justify-between text-[10px] text-muted-foreground">
-            <span>Turbo (Shift)</span>
-            <span>{Math.round(hud.boost)}%</span>
-          </div>
-        </div>
-      </div>
-
-      {/* üst orta: üs + süre */}
-      <div className="hud-panel absolute left-1/2 top-4 w-[340px] -translate-x-1/2 p-3 text-center">
-        <div className="flex items-baseline justify-between text-[10px] uppercase tracking-[0.25em] text-muted-foreground">
-          <span>
-            {hud.baseStage} · Lv {hud.baseLv}
-          </span>
-          <span className="text-gold">⏱ {fmtTime(hud.roundLeft)}</span>
-        </div>
-        <div className="mt-1.5">
-          <Bar value={base.energy} className="bg-gradient-to-r from-gold to-fire" />
-        </div>
-        <div className="mt-2 flex items-center justify-between text-[11px] text-muted-foreground">
-          <span>
-            Havuz <b className="text-foreground">{hud.basePool}</b> / {hud.baseCost}
-          </span>
-          <span>
-            Kill <b className="text-foreground">{hud.kills}</b> · Puan{" "}
-            <b className="text-foreground">{hud.score}</b>
-          </span>
-          <button
-            onClick={() => gameRef.current?.upgradeBase()}
-            disabled={!base.canUpgrade}
-            className="rounded border border-gold/70 px-2 py-0.5 text-[10px] font-semibold text-gold transition-colors hover:bg-gold hover:text-background disabled:opacity-35"
-          >
-            Üssü Yükselt
-          </button>
-        </div>
-      </div>
-
-      {/* sağ üst: skor + killfeed */}
-      <div className="absolute right-4 top-4 w-[220px] space-y-2">
-        <div className="hud-panel p-3">
-          <div className="mb-2 text-[10px] uppercase tracking-[0.25em] text-muted-foreground">
-            Irk Sıralaması
-          </div>
-          {hud.leaderboard.map((l) => (
-            <div key={l.raceId} className="mb-1.5">
-              <div className="flex justify-between text-xs">
-                <span style={{ color: l.color }}>
-                  {l.name} <b className="text-[10px] text-muted-foreground">Üs{l.baseLv}</b>
-                </span>
-                <span className="text-muted-foreground">{l.score}</span>
-              </div>
-              <div className="mt-0.5 h-1 overflow-hidden rounded bg-secondary/70">
-                <div
-                  className="h-full rounded"
-                  style={{
-                    width: `${(l.score / Math.max(1, hud.leaderboard[0]!.score)) * 100}%`,
-                    background: l.color,
-                  }}
-                />
-              </div>
-            </div>
-          ))}
-        </div>
-        <div className="space-y-1 text-right text-xs">
-          {hud.killfeed.map((k) => (
-            <div
-              key={k.id}
-              style={{ color: k.color }}
-              className="drop-shadow-[0_1px_3px_rgba(0,0,0,.9)]"
-            >
-              {k.text}
-            </div>
-          ))}
-        </div>
-      </div>
-
-      <UpgradePanel hud={hud} onUpgrade={upgrade} onSystem={system} sysMsg={sysMsg} />
-      <SystemBar hud={hud} />
-
       <canvas
         ref={mmRef}
         width={200}
         height={200}
-        className="hud-panel absolute bottom-4 right-4 h-[200px] w-[200px]"
+        className="hud-panel absolute bottom-4 right-4 z-10 h-[200px] w-[200px]"
       />
 
-      {hud.toast && (
-        <div className="pointer-events-none absolute left-1/2 top-[26%] -translate-x-1/2 text-center">
-          <div className="font-display text-2xl font-black text-gold drop-shadow-[0_0_24px_rgba(255,207,77,.6)]">
-            {hud.toast}
+      {hud && (
+        <>
+          {/* düşük can vinyeti */}
+          <div
+            className="pointer-events-none absolute inset-0 z-10 transition-opacity duration-300"
+            style={{
+              opacity: hud.lowHp * 0.9,
+              background:
+                "radial-gradient(ellipse at center, transparent 52%, rgba(255,40,30,.38) 100%)",
+            }}
+          />
+
+          {paused && !endedStats && (
+            <div className="absolute inset-0 z-20 flex items-center justify-center bg-background/70 backdrop-blur-sm">
+              <div className="hud-panel p-6 text-center">
+                <h2 className="font-display text-xl font-bold text-gold">DURAKLATILDI</h2>
+                <div className="mt-4 flex flex-col gap-2">
+                  <button
+                    onClick={() => gameRef.current?.togglePaused()}
+                    className="rounded border border-gold px-8 py-2 text-sm text-gold hover:bg-gold hover:text-background"
+                  >
+                    Devam Et
+                  </button>
+                  <button
+                    onClick={onOpenSettings}
+                    className="rounded border border-border px-8 py-2 text-sm text-muted-foreground hover:border-foreground hover:text-foreground"
+                  >
+                    Ayarlar
+                  </button>
+                  <button
+                    onClick={onExit}
+                    className="rounded border border-border px-8 py-2 text-sm text-muted-foreground hover:border-fire hover:text-fire"
+                  >
+                    Ana Menü
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {hud.pendingBranch && !hud.dead && (
+            <BranchModal hud={hud} onChoose={(i) => gameRef.current?.chooseBranch(i)} />
+          )}
+
+          {/* sol üst: gemi durumu */}
+          <div className="hud-panel absolute left-4 top-4 w-[288px] p-3">
+            <div className="flex items-baseline justify-between">
+              <span className="font-display text-sm font-bold">{hud.shipName}</span>
+              <span className="text-xs text-gold">Lv {hud.level}/25</span>
+            </div>
+            <div className="mb-2 text-[11px] uppercase tracking-widest text-muted-foreground">
+              {hud.raceName} · {hud.sizeClass}
+            </div>
+            <div className="space-y-1.5">
+              <Bar value={hud.hp / hud.maxHp} className="bg-gradient-to-r from-fire to-gold" />
+              <div className="flex justify-between text-[10px] text-muted-foreground">
+                <span>Gövde</span>
+                <span>
+                  {Math.round(hud.hp)} / {hud.maxHp}
+                </span>
+              </div>
+              <Bar
+                value={hud.maxShield ? hud.shield / hud.maxShield : 0}
+                className="bg-gradient-to-r from-water to-air"
+              />
+              <div className="flex justify-between text-[10px] text-muted-foreground">
+                <span>Kalkan</span>
+                <span>
+                  {Math.round(hud.shield)} / {hud.maxShield}
+                </span>
+              </div>
+              <Bar
+                value={hud.level >= 25 ? 1 : hud.xp / hud.xpNeed}
+                className="bg-gradient-to-r from-gold to-earth"
+              />
+              <div className="flex justify-between text-[10px] text-muted-foreground">
+                <span>Deneyim</span>
+                <span>{hud.level >= 25 ? "MAKS" : `${Math.round(hud.xp)} / ${hud.xpNeed}`}</span>
+              </div>
+              <Bar
+                value={hud.cargo / hud.cargoCap}
+                className={
+                  hud.cargo >= hud.cargoCap
+                    ? "bg-gradient-to-r from-fire to-gold animate-pulse"
+                    : "bg-gradient-to-r from-air to-earth"
+                }
+              />
+              <div className="flex justify-between text-[10px]">
+                <span
+                  className={
+                    hud.cargo >= hud.cargoCap ? "font-bold text-gold" : "text-muted-foreground"
+                  }
+                >
+                  {hud.resource}
+                  {hud.cargo >= hud.cargoCap ? " — DOLU! Üsse dön" : ""}
+                </span>
+                <span
+                  className={
+                    hud.cargo >= hud.cargoCap ? "font-bold text-gold" : "text-muted-foreground"
+                  }
+                >
+                  {hud.cargo} / {hud.cargoCap}
+                </span>
+              </div>
+              <div className="flex justify-between text-[10px] text-muted-foreground">
+                <span>Hammadde</span>
+                <span>
+                  ⛭ {hud.bank}
+                  {hud.anti > 0 ? ` · ⚛${hud.anti}` : ""}
+                </span>
+              </div>
+              <Bar value={hud.boost / 100} className="bg-gradient-to-r from-water to-gold" />
+              <div className="flex justify-between text-[10px] text-muted-foreground">
+                <span>Turbo (Shift)</span>
+                <span>{Math.round(hud.boost)}%</span>
+              </div>
+            </div>
           </div>
-        </div>
+
+          {/* üst orta: üs + hakimiyet */}
+          <div className="hud-panel absolute left-1/2 top-4 w-[340px] -translate-x-1/2 p-3 text-center">
+            <div className="flex items-baseline justify-between text-[10px] uppercase tracking-[0.25em] text-muted-foreground">
+              <span>
+                {hud.baseStage} · Lv {hud.baseLv}
+              </span>
+              <span className="text-gold">⏱ {fmtTime(hud.roundLeft)}</span>
+            </div>
+            <div className="mt-1.5">
+              <Bar value={hud.baseEnergy} className="bg-gradient-to-r from-gold to-fire" />
+            </div>
+            <div className="mt-2 flex items-center justify-between text-[11px] text-muted-foreground">
+              <span>
+                Havuz <b className="text-foreground">{hud.basePool}</b> / {hud.baseCost}
+              </span>
+              <span>
+                Kill <b className="text-foreground">{hud.kills}</b> · Puan{" "}
+                <b className="text-foreground">{hud.score}</b>
+              </span>
+              <button
+                onClick={() => gameRef.current?.upgradeBase()}
+                disabled={!canUpgrade}
+                className="rounded border border-gold/70 px-2 py-0.5 text-[10px] font-semibold text-gold transition-colors hover:bg-gold hover:text-background disabled:opacity-35"
+              >
+                Üssü Yükselt
+              </button>
+            </div>
+            <div className="mt-2 flex items-center justify-center gap-3 border-t border-border/60 pt-2">
+              <span className="text-[9px] uppercase tracking-[0.3em] text-gold/80">Hakimiyet</span>
+              {hud.aliveTeams.map((t) => (
+                <span
+                  key={t.name}
+                  title={t.alive ? `${t.name} üssü ayakta` : `${t.name} üssü yıkıldı`}
+                  className={`flex items-center gap-1 text-[10px] ${t.alive ? "" : "line-through opacity-40"}`}
+                  style={{ color: t.color }}
+                >
+                  <span
+                    className={`inline-block h-2 w-2 rounded-full ${t.alive ? "animate-pulse" : ""}`}
+                    style={{ background: t.alive ? t.color : "#555" }}
+                  />
+                  {t.name}
+                </span>
+              ))}
+            </div>
+          </div>
+
+          {/* sağ üst: skor + killfeed */}
+          <div className="absolute right-4 top-4 w-[220px] space-y-2">
+            <div className="hud-panel p-3">
+              <div className="mb-2 text-[10px] uppercase tracking-[0.25em] text-muted-foreground">
+                Irk Sıralaması
+              </div>
+              {hud.leaderboard.map((l) => (
+                <div key={l.raceId} className={`mb-1.5 ${l.alive ? "" : "opacity-35"}`}>
+                  <div className="flex justify-between text-xs">
+                    <span style={{ color: l.color }} className={l.alive ? "" : "line-through"}>
+                      {l.name}{" "}
+                      <b className="text-[10px] text-muted-foreground">
+                        {l.alive ? `Üs${l.baseLv}` : "yıkıldı"}
+                      </b>
+                    </span>
+                    <span className="text-muted-foreground">{l.score}</span>
+                  </div>
+                  <div className="mt-0.5 h-1 overflow-hidden rounded bg-secondary/70">
+                    <div
+                      className="h-full rounded"
+                      style={{
+                        width: `${(l.score / Math.max(1, hud.leaderboard[0]!.score)) * 100}%`,
+                        background: l.color,
+                      }}
+                    />
+                  </div>
+                </div>
+              ))}
+            </div>
+            <div className="space-y-1 text-right text-xs">
+              {hud.killfeed.map((k) => (
+                <div
+                  key={k.id}
+                  style={{ color: k.color }}
+                  className="drop-shadow-[0_1px_3px_rgba(0,0,0,.9)]"
+                >
+                  {k.text}
+                </div>
+              ))}
+            </div>
+          </div>
+
+          <UpgradePanel
+            hud={hud}
+            onUpgrade={upgrade}
+            onSystem={system}
+            onBuild={build}
+            onPierce={pierce}
+            sysMsg={sysMsg}
+          />
+          <SystemBar hud={hud} />
+
+          {hud.toast && (
+            <div className="pointer-events-none absolute left-1/2 top-[26%] -translate-x-1/2 text-center">
+              <div className="font-display text-2xl font-black text-gold drop-shadow-[0_0_24px_rgba(255,207,77,.6)]">
+                {hud.toast}
+              </div>
+            </div>
+          )}
+
+          {hud.dead && !hud.ended && (
+            <div className="absolute inset-0 z-20 flex flex-col items-center justify-center bg-background/85 backdrop-blur-sm">
+              <h2 className="text-3xl font-black text-fire">GEMİN YOK EDİLDİ</h2>
+              <p className="mt-2 text-sm text-muted-foreground">{hud.deathInfo}</p>
+              <button
+                onClick={() => gameRef.current?.playerRespawn()}
+                className="mt-6 rounded-md border border-gold px-7 py-2.5 text-sm font-semibold text-gold transition-colors hover:bg-gold hover:text-background"
+              >
+                Yeniden Doğ
+              </button>
+            </div>
+          )}
+
+          {hud.ended && (
+            <EndOverlay hud={hud} stats={endedStats} onRestart={onRestart} onMenu={onExit} />
+          )}
+        </>
       )}
 
-      {hud.dead && !hud.ended && (
-        <div className="absolute inset-0 z-20 flex flex-col items-center justify-center bg-background/85 backdrop-blur-sm">
-          <h2 className="text-3xl font-black text-fire">GEMİN YOK EDİLDİ</h2>
-          <p className="mt-2 text-sm text-muted-foreground">{hud.deathInfo}</p>
-          <button
-            onClick={() => gameRef.current?.playerRespawn()}
-            className="mt-6 rounded-md border border-gold px-7 py-2.5 text-sm font-semibold text-gold transition-colors hover:bg-gold hover:text-background"
-          >
-            Yeniden Doğ
-          </button>
-        </div>
-      )}
-
-      {hud.ended && (
-        <EndOverlay hud={hud} stats={endedStats} onRestart={onRestart} onMenu={onExit} />
-      )}
-
-      {!paused && !hud.ended && (
+      {!paused && !(hud && hud.ended) && (
         <button
           onClick={() => gameRef.current?.togglePaused()}
           className="hud-panel absolute right-4 top-[290px] px-2 py-1 text-[10px] uppercase tracking-widest text-muted-foreground hover:text-foreground"

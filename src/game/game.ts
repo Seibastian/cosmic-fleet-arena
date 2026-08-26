@@ -1,10 +1,10 @@
 /* CosmoWar Arena — istemci denetleyicisi: sabit zaman adımı döngüsü, girdi soyutlaması,
    sim ↔ render ↔ ses olay dağıtımı. Sim katmanı buraya bağımlı değildir. */
-import { emptyCmd, SESSION_TIME, Sim, type Cmd, type HudState } from "./sim";
+import { emptyCmd, Sim, type Cmd, type HudState } from "./sim";
 import { Renderer } from "./renderer";
 import { AudioEngine } from "./audio";
 import { SYSTEM_ORDER, type SysKey } from "./systems";
-import type { UpKey } from "./data";
+import type { DefenseType, UpKey } from "./data";
 import { pushTelemetry, type Settings, type TelemetryRow } from "./persist";
 
 const STEP = 1 / 60;
@@ -124,6 +124,8 @@ export class Game {
     this.mouse.right = false;
   };
 
+  private buildQueue = false;
+
   private onKeyDown = (e: KeyboardEvent) => {
     const k = e.key.toLowerCase();
     this.keys.add(k);
@@ -138,10 +140,39 @@ export class Game {
         this.chooseBranch(1);
         return;
       }
-    } else if (KEY_UPGRADES[k]) {
-      this.spendUpgrade(KEY_UPGRADES[k]!);
+    }
+    if (this.buildQueue) {
+      const buildKeys: Record<string, DefenseType> = {
+        "1": "wall",
+        "2": "shield",
+        "3": "fortress",
+      };
+      if (buildKeys[k]) {
+        const err = this.sim.buildDefense(buildKeys[k]!);
+        if (err) {
+          this.sim.toast = err;
+          this.sim.toastT = 2;
+        }
+      }
+      this.buildQueue = false;
+      return;
+    }
+    if (KEY_UPGRADES[k]) {
+      const err = this.spendUpgrade(KEY_UPGRADES[k]!);
+      if (err) {
+        this.sim.toast = err;
+        this.sim.toastT = 2;
+      }
     }
     if (sysKeys[k]) this.sysQueue.push(sysKeys[k]!);
+    if (k === "r") {
+      const err = this.sim.buyPiercingAmmo();
+      if (err) {
+        this.sim.toast = err;
+        this.sim.toastT = 2;
+      }
+    }
+    if (k === "b") this.buildQueue = true;
   };
   private onKeyUp = (e: KeyboardEvent) => this.keys.delete(e.key.toLowerCase());
 
@@ -160,8 +191,8 @@ export class Game {
   }
 
   /* ---------------- oturum eylemleri ---------------- */
-  spendUpgrade(k: UpKey) {
-    this.sim.spendUpgrade(k);
+  spendUpgrade(k: UpKey): string | null {
+    return this.sim.spendUpgrade(k);
   }
   spendSystem(k: SysKey): string | null {
     return this.sim.spendSystem(k);
@@ -171,6 +202,12 @@ export class Game {
   }
   upgradeBase() {
     return this.sim.upgradeBase();
+  }
+  buildDefense(t: DefenseType): string | null {
+    return this.sim.buildDefense(t);
+  }
+  buyPiercingAmmo(): string | null {
+    return this.sim.buyPiercingAmmo();
   }
   playerRespawn() {
     this.sim.playerRespawn();
@@ -260,13 +297,13 @@ export class Game {
         kills: h.kills,
         won: h.ended.winner === this.sim.player.raceId,
         raceId: this.sim.player.raceId,
-        timeSurvived: Math.max(0, SESSION_TIME - h.roundLeft),
+        timeSurvived: h.roundLeft,
       });
     }
   }
 
   get roundTime() {
-    return SESSION_TIME;
+    return 0;
   }
   get systemOrder() {
     return SYSTEM_ORDER;

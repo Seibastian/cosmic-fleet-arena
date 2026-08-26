@@ -96,7 +96,12 @@ export interface GameEvent {
     | "win"
     | "spawn"
     | "antiget"
-    | "void";
+    | "void"
+    | "domination"
+    | "defensehit"
+    | "solarmine"
+    | "darkmine"
+    | "collect";
   x?: number;
   y?: number;
   raceId?: number;

@@ -28,9 +28,10 @@ interface Particle {
   maxLife: number;
   r: number;
   color: string;
-  kind: "spark" | "smoke" | "ring" | "debris";
+  kind: "spark" | "smoke" | "ring" | "debris" | "text";
   rot?: number;
   grav?: number;
+  text?: string;
 }
 
 export class Renderer {
@@ -115,6 +116,33 @@ export class Renderer {
         break;
       case "basehit":
         this.sparks(e.x!, e.y!, 4, "#ffd07a");
+        break;
+      case "collect":
+        if (e.text)
+          this.particles.push({
+            x: e.x!,
+            y: e.y! - 14,
+            vx: rand(-8, 8),
+            vy: -46,
+            life: 0.9,
+            maxLife: 0.9,
+            r: 13,
+            color: e.raceId !== undefined && e.raceId >= 0 ? pal[e.raceId]!.glow : "#fff",
+            kind: "text",
+            text: e.text,
+          });
+        break;
+      case "solarmine":
+        this.sparks(e.x!, e.y!, 3, "#ffd76a");
+        break;
+      case "darkmine":
+        this.sparks(e.x!, e.y!, 3, "#b07aff");
+        break;
+      case "defensehit":
+        this.sparks(e.x!, e.y!, 4, "#aebdd6");
+        break;
+      case "domination":
+        this.ring(e.x ?? 0, e.y ?? 0, 260, "#ffcf4d");
         break;
       default:
         break;
@@ -254,7 +282,7 @@ export class Renderer {
       const rr = n.r * z;
       if (sx < -rr || sx > W + rr || sy < -rr || sy > H + rr) continue;
       const g = ctx.createRadialGradient(sx, sy, 0, sx, sy, rr);
-      g.addColorStop(0, n.c + "26");
+      g.addColorStop(0, n.c + "14");
       g.addColorStop(1, "transparent");
       ctx.fillStyle = g;
       ctx.beginPath();
@@ -284,6 +312,7 @@ export class Renderer {
     this.drawHoles(ctx, sim);
     this.drawStars(ctx, sim);
     this.drawBases(ctx, sim);
+    this.drawStructures(ctx, sim);
     this.drawAsteroids(ctx, sim);
     this.drawResources(ctx, sim);
     this.drawGases(ctx, sim);
@@ -474,6 +503,31 @@ export class Renderer {
       const stage = baseStageOf(b.level);
       ctx.save();
       ctx.translate(b.x, b.y);
+      if (!b.alive) {
+        ctx.globalAlpha = 0.5;
+        ctx.strokeStyle = "#5a5f6b";
+        ctx.lineWidth = 4;
+        ctx.setLineDash([14, 12]);
+        ctx.beginPath();
+        ctx.arc(0, 0, b.radius * 0.7, 0, TAU);
+        ctx.stroke();
+        ctx.setLineDash([]);
+        ctx.fillStyle = "#39404d";
+        for (let i = 0; i < 5; i++) {
+          const a = (i / 5) * TAU + 0.4;
+          ctx.save();
+          ctx.translate(Math.cos(a) * b.radius * 0.45, Math.sin(a) * b.radius * 0.45);
+          ctx.rotate(a + 1);
+          ctx.fillRect(-16, -8, 32, 16);
+          ctx.restore();
+        }
+        ctx.fillStyle = "#8a93a3";
+        ctx.font = "bold 18px Orbitron, sans-serif";
+        ctx.textAlign = "center";
+        ctx.fillText("YIKILDI", 0, -b.radius * 0.75 - 14);
+        ctx.restore();
+        continue;
+      }
       const aura = ctx.createRadialGradient(0, 0, 0, 0, 0, b.radius * (1.6 + stage * 0.14));
       aura.addColorStop(0, rc.color + "3a");
       aura.addColorStop(1, "transparent");
@@ -580,6 +634,90 @@ export class Renderer {
     }
   }
 
+  private drawStructures(ctx: CanvasRenderingContext2D, sim: Sim) {
+    for (const st of sim.structures) {
+      if (!this.inView(st.x, st.y, st.radius * 3)) continue;
+      const rc = this.pal[st.raceId]!;
+      ctx.save();
+      ctx.translate(st.x, st.y);
+      const hpK = clamp(st.hp / st.maxHp, 0, 1);
+      if (st.type === "wall") {
+        ctx.rotate(st.angle);
+        ctx.shadowColor = rc.color;
+        ctx.shadowBlur = 10;
+        ctx.fillStyle = rc.dark;
+        ctx.strokeStyle = rc.color;
+        ctx.lineWidth = 2.2;
+        ctx.beginPath();
+        ctx.rect(-st.radius * 0.55, -st.radius * 1.5, st.radius * 1.1, st.radius * 3);
+        ctx.fill();
+        ctx.stroke();
+        ctx.fillStyle = rc.glow + "44";
+        for (let i = -1; i <= 1; i++) {
+          ctx.fillRect(-st.radius * 0.35, i * st.radius * 0.85 - 5, st.radius * 0.7, 10);
+        }
+      } else if (st.type === "shield") {
+        const sk = st.maxShield > 0 ? clamp(st.shield / st.maxShield, 0, 1) : 0;
+        ctx.shadowColor = rc.glow;
+        ctx.shadowBlur = 16;
+        ctx.globalAlpha = 0.25 + sk * 0.45;
+        ctx.strokeStyle = rc.glow;
+        ctx.lineWidth = 2.6;
+        ctx.setLineDash([10, 8]);
+        ctx.lineDashOffset = -this.time * 24;
+        ctx.beginPath();
+        ctx.arc(0, 0, st.radius, 0, TAU);
+        ctx.stroke();
+        ctx.setLineDash([]);
+        ctx.globalAlpha = 0.14 + sk * 0.12;
+        ctx.fillStyle = rc.color;
+        ctx.fill();
+        ctx.globalAlpha = 1;
+        ctx.fillStyle = rc.dark;
+        ctx.beginPath();
+        ctx.arc(0, 0, st.radius * 0.4, 0, TAU);
+        ctx.fill();
+      } else {
+        ctx.rotate(st.angle);
+        ctx.shadowColor = rc.color;
+        ctx.shadowBlur = 12;
+        ctx.fillStyle = rc.dark;
+        ctx.strokeStyle = rc.color;
+        ctx.lineWidth = 2.4;
+        ctx.beginPath();
+        for (let i = 0; i < 6; i++) {
+          const a = (i / 6) * TAU;
+          const px = Math.cos(a) * st.radius,
+            py = Math.sin(a) * st.radius;
+          if (i === 0) ctx.moveTo(px, py);
+          else ctx.lineTo(px, py);
+        }
+        ctx.closePath();
+        ctx.fill();
+        ctx.stroke();
+        ctx.fillStyle = rc.glow;
+        ctx.fillRect(0, -3.2, st.radius * 1.5, 6.4);
+        if (st.fireCd > 0.9) {
+          ctx.globalAlpha = (st.fireCd - 0.9) * 6;
+          ctx.fillStyle = "#fff";
+          ctx.beginPath();
+          ctx.arc(st.radius * 1.4, 0, 5, 0, TAU);
+          ctx.fill();
+        }
+      }
+      ctx.restore();
+      if (hpK < 1) {
+        ctx.save();
+        ctx.translate(st.x, st.y);
+        ctx.fillStyle = "rgba(20,26,38,.8)";
+        ctx.fillRect(-18, -st.radius - 14, 36, 5);
+        ctx.fillStyle = hpK > 0.5 ? "#7ad13a" : hpK > 0.25 ? "#ffcf4d" : "#ff5a3c";
+        ctx.fillRect(-17, -st.radius - 13, 34 * hpK, 3);
+        ctx.restore();
+      }
+    }
+  }
+
   private drawAsteroids(ctx: CanvasRenderingContext2D, sim: Sim) {
     for (const a of sim.asteroids) {
       if (!this.inView(a.x, a.y, a.radius + 60)) continue;
@@ -653,8 +791,45 @@ export class Renderer {
         ctx.beginPath();
         ctx.arc(0, 0, rr, 0, TAU);
         ctx.fill();
+      } else if (r.resType === "solar") {
+        ctx.shadowColor = "#ffd76a";
+        ctx.shadowBlur = 20;
+        const g = ctx.createRadialGradient(0, 0, 0, 0, 0, rr * 1.3);
+        g.addColorStop(0, "#fff8dc");
+        g.addColorStop(0.55, "#ffd76a");
+        g.addColorStop(1, "#c87a1a");
+        ctx.fillStyle = g;
+        ctx.beginPath();
+        ctx.arc(0, 0, rr, 0, TAU);
+        ctx.fill();
+        ctx.strokeStyle = "rgba(255,240,180,.85)";
+        ctx.lineWidth = 1.4;
+        for (let i = 0; i < 4; i++) {
+          const a = this.time * 0.9 + (i / 4) * TAU;
+          ctx.beginPath();
+          ctx.moveTo(Math.cos(a) * rr * 1.25, Math.sin(a) * rr * 1.25);
+          ctx.lineTo(Math.cos(a) * rr * 1.75, Math.sin(a) * rr * 1.75);
+          ctx.stroke();
+        }
+      } else if (r.resType === "dark") {
+        ctx.rotate(this.time * 0.8 + r.phase);
+        ctx.shadowColor = "#b07aff";
+        ctx.shadowBlur = 18;
+        ctx.strokeStyle = "#c9a6ff";
+        ctx.lineWidth = 1.6;
+        ctx.beginPath();
+        ctx.arc(0, 0, rr, 0, TAU);
+        ctx.stroke();
+        const g = ctx.createRadialGradient(0, 0, 0, 0, 0, rr);
+        g.addColorStop(0, "#12081f");
+        g.addColorStop(0.7, "#4a2385");
+        g.addColorStop(1, "#b07aff");
+        ctx.fillStyle = g;
+        ctx.beginPath();
+        ctx.arc(0, 0, rr, 0, TAU);
+        ctx.fill();
       } else {
-        const race = this.pal[r.raceId]!;
+        const race = this.pal[r.raceId >= 0 ? r.raceId : 0]!;
         ctx.rotate(r.phase * 0.4 + this.time * 0.6);
         ctx.shadowColor = race.color;
         ctx.shadowBlur = 16;
@@ -751,10 +926,10 @@ export class Renderer {
       for (const t of s.beamTargets) {
         const g = ctx.createLinearGradient(s.x, s.y, t.x, t.y);
         g.addColorStop(0, rc.glow);
-        g.addColorStop(1, "transparent");
+        g.addColorStop(1, rc.color);
         ctx.strokeStyle = g;
-        ctx.lineWidth = 2.6;
-        ctx.globalAlpha = 0.75 + Math.random() * 0.25;
+        ctx.lineWidth = s.isPlayer ? 4.5 : 2.6;
+        ctx.globalAlpha = 0.8 + Math.random() * 0.2;
         ctx.beginPath();
         ctx.moveTo(s.x, s.y);
         ctx.lineTo(t.x, t.y);
@@ -762,8 +937,19 @@ export class Renderer {
         ctx.globalAlpha = 0.9;
         ctx.fillStyle = rc.glow;
         ctx.beginPath();
-        ctx.arc(t.x, t.y, 3 + Math.random() * 3, 0, TAU);
+        ctx.arc(t.x, t.y, (s.isPlayer ? 6 : 3) + Math.random() * 3, 0, TAU);
         ctx.fill();
+        if (s.isPlayer) {
+          ctx.globalAlpha = 0.55;
+          ctx.setLineDash([6, 7]);
+          ctx.lineDashOffset = -this.time * 30;
+          ctx.strokeStyle = rc.glow;
+          ctx.lineWidth = 1.4;
+          ctx.beginPath();
+          ctx.arc(t.x, t.y, t.radius + 10, 0, TAU);
+          ctx.stroke();
+          ctx.setLineDash([]);
+        }
       }
       if (sim.player.channelTarget && sim.player.channelT > 0 && s.isPlayer) {
         const tgt = sim.player.channelTarget;
@@ -805,6 +991,16 @@ export class Renderer {
         ctx.rotate(p.rot ?? 0);
         ctx.fillStyle = p.color;
         ctx.fillRect(-p.r / 2, -p.r / 4, p.r, p.r / 2);
+        ctx.restore();
+      } else if (p.kind === "text") {
+        ctx.save();
+        ctx.font = "bold 15px system-ui, sans-serif";
+        ctx.textAlign = "center";
+        ctx.globalAlpha = Math.min(1, k * 1.4);
+        ctx.shadowColor = "#000";
+        ctx.shadowBlur = 6;
+        ctx.fillStyle = p.color;
+        ctx.fillText(p.text ?? "", p.x, p.y);
         ctx.restore();
       } else {
         ctx.fillStyle = p.color;
@@ -860,6 +1056,25 @@ export class Renderer {
         ctx.beginPath();
         ctx.arc(0, 0, s.radius * (1.4 + (1 - k) * 1.2), 0, TAU);
         ctx.stroke();
+        ctx.restore();
+      }
+
+      if (s.isPlayer && s.cargo >= sim.cargoCap(s)) {
+        const pulse = 0.5 + Math.sin(this.time * 7) * 0.5;
+        ctx.save();
+        ctx.globalAlpha = 0.35 + pulse * 0.45;
+        ctx.strokeStyle = "#ffcf4d";
+        ctx.lineWidth = 3;
+        ctx.setLineDash([9, 9]);
+        ctx.lineDashOffset = -this.time * 40;
+        ctx.beginPath();
+        ctx.arc(0, 0, s.radius * 2.4 + pulse * 6, 0, TAU);
+        ctx.stroke();
+        ctx.setLineDash([]);
+        ctx.fillStyle = "#ffcf4d";
+        ctx.font = "bold 13px system-ui, sans-serif";
+        ctx.textAlign = "center";
+        ctx.fillText("KARGO DOLU", 0, -s.radius * 2.4 - 12);
         ctx.restore();
       }
 
@@ -920,7 +1135,7 @@ export class Renderer {
       }
       drawShipShape(
         ctx,
-        s.tier.sizeClass,
+        s.raceId,
         s.radius,
         rc.color,
         rc.dark,

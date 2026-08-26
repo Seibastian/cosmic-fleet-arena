@@ -72,6 +72,37 @@ export const UP_LABELS: Record<UpKey, string> = {
   cargo: "Kargo",
 };
 
+export type ResType = "mineral" | "solar" | "stellar" | "dark";
+export type DefenseType = "wall" | "shield" | "fortress";
+export const DEFENSE_COSTS: Record<
+  DefenseType,
+  { resources: number; hp: number; shield: number; desc: string }
+> = {
+  wall: {
+    resources: 12,
+    hp: 280,
+    shield: 0,
+    desc: "Yüksek HP duvarı — mermi ve gemi çarpmalarını emer",
+  },
+  shield: {
+    resources: 18,
+    hp: 140,
+    shield: 220,
+    desc: "Yenilenen kalkan bariyeri — geçişleri yavaşlatır",
+  },
+  fortress: {
+    resources: 26,
+    hp: 200,
+    shield: 0,
+    desc: "Otomatik taret — menzildeki düşmanlara ateş eder",
+  },
+};
+export const DEFENSE_LABELS: Record<DefenseType, string> = {
+  wall: "Uzay Duvarı",
+  shield: "Kalkan Bariyeri",
+  fortress: "Savaş Kalesi",
+};
+
 export const BASE_STAGES = ["Karakol", "İstasyon", "Kale", "Sitadel", "Anavatan Çekirdeği"];
 export const baseStageOf = (lv: number) => Math.min(5, Math.ceil(lv / 5)) - 1;
 export const baseUpgradeCost = (lv: number) => Math.round(220 * Math.pow(1.32, lv - 1));
@@ -662,7 +693,7 @@ export function getTier(raceId: number, pathKey: string, level: number): Tier {
     turnRate: (4.4 - t * 1.5) * agile * b.turnMul,
     damage: (5 + level * 2.1) * b.dmgMul,
     fireRate: Math.max(0.075, 0.32 - t * 0.17) * weaponFor(race.weapon, level, t, b).rateMul,
-    cargoCap: 2 + Math.floor(level / 2.2) + (race.weapon === "slug" ? 2 : 0) + b.cargoAdd,
+    cargoCap: 6 + Math.floor(level * 1.4) + (race.weapon === "slug" ? 4 : 0) + b.cargoAdd,
     xpToNext: Math.round(70 * Math.pow(level, 1.32)),
     mass: (1 + t * 6 + (race.weapon === "slug" ? 1.5 : 0)) * b.massMul,
     weapon: weaponFor(race.weapon, level, t, b),
@@ -737,88 +768,73 @@ export const BOT_NAMES = [
 
 type Pt = [number, number];
 
-function hullPath(sizeClass: SizeClass, r: number, variant: number): Pt[] {
-  const nose = 1 + variant * 0.3;
-  const wing = 1 - variant * 0.22;
-  switch (sizeClass) {
-    case "scout":
+/** Her ırkın tamamen farklı siluet ailesi: Hava=ok, Su=damla, Toprak=kama, Ateş=çatal. */
+function racePath(raceId: number, r: number, variant: number): Pt[] {
+  const nose = 1 + variant * 0.22;
+  const wing = 1 - variant * 0.18;
+  switch (raceId % 4) {
+    case 0 /* Hava — iğne burunlu ok, jilet kanatlar */:
       return [
-        [r * 1.35 * nose, 0],
-        [r * 0.1, r * 0.42 * wing],
-        [-r * 0.85, r * 0.78 * wing],
-        [-r * 0.45, 0],
-        [-r * 0.85, -r * 0.78 * wing],
-        [r * 0.1, -r * 0.42 * wing],
+        [r * 2.3 * nose, 0],
+        [r * 0.35, r * 0.16 * wing],
+        [-r * 0.25, r * 0.55 * wing],
+        [-r * 1.05, r * 0.95 * wing],
+        [-r * 0.62, r * 0.28 * wing],
+        [-r * 0.78, 0],
+        [-r * 0.62, -r * 0.28 * wing],
+        [-r * 1.05, -r * 0.95 * wing],
+        [-r * 0.25, -r * 0.55 * wing],
+        [r * 0.35, -r * 0.16 * wing],
       ];
-    case "fighter":
+    case 1 /* Su — organik damla, geniş yarasa yüzgeçleri */:
       return [
         [r * 1.45 * nose, 0],
-        [r * 0.55, r * 0.3 * wing],
-        [r * 0.05, r * 0.55 * wing],
-        [-r * 0.55, r * 1.05 * wing],
-        [-r * 0.95, r * 0.75 * wing],
-        [-r * 0.6, r * 0.18 * wing],
-        [-r * 0.6, -r * 0.18 * wing],
-        [-r * 0.95, -r * 0.75 * wing],
-        [-r * 0.55, -r * 1.05 * wing],
-        [r * 0.05, -r * 0.55 * wing],
-        [r * 0.55, -r * 0.3 * wing],
+        [r * 0.95, r * 0.42 * wing],
+        [r * 0.3, r * 0.72 * wing],
+        [-r * 0.35, r * 1.18 * wing],
+        [-r * 0.95, r * 0.82 * wing],
+        [-r * 1.15, r * 0.34 * wing],
+        [-r * 0.95, 0],
+        [-r * 1.15, -r * 0.34 * wing],
+        [-r * 0.95, -r * 0.82 * wing],
+        [-r * 0.35, -r * 1.18 * wing],
+        [r * 0.3, -r * 0.72 * wing],
+        [r * 0.95, -r * 0.42 * wing],
       ];
-    case "gunship":
+    case 2 /* Toprak — köşeli kama, geniş zırh plakaları */:
       return [
-        [r * 1.4 * nose, 0],
-        [r * 0.7, r * 0.34 * wing],
-        [r * 0.2, r * 0.5 * wing],
-        [-r * 0.2, r * 0.55 * wing],
-        [-r * 0.75, r * 1.15 * wing],
-        [-r * 1.15, r * 0.85 * wing],
-        [-r * 0.9, r * 0.25 * wing],
-        [-r * 1.05, 0],
-        [-r * 0.9, -r * 0.25 * wing],
-        [-r * 1.15, -r * 0.85 * wing],
-        [-r * 0.75, -r * 1.15 * wing],
-        [-r * 0.2, -r * 0.55 * wing],
-        [r * 0.2, -r * 0.5 * wing],
-        [r * 0.7, -r * 0.34 * wing],
+        [r * 1.2 * nose, 0],
+        [r * 1.05, r * 0.52 * wing],
+        [r * 0.45, r * 0.68 * wing],
+        [r * 0.45, r * 1.12 * wing],
+        [-r * 0.4, r * 1.12 * wing],
+        [-r * 0.72, r * 0.6 * wing],
+        [-r * 1.25, r * 0.6 * wing],
+        [-r * 1.25, -r * 0.6 * wing],
+        [-r * 0.72, -r * 0.6 * wing],
+        [-r * 0.4, -r * 1.12 * wing],
+        [r * 0.45, -r * 1.12 * wing],
+        [r * 0.45, -r * 0.68 * wing],
+        [r * 1.05, -r * 0.52 * wing],
       ];
-    case "cruiser":
+    default: /* Ateş — öne üç çatal, arkada dikenler */
       return [
-        [r * 1.55 * nose, 0],
-        [r * 0.95, r * 0.28 * wing],
-        [r * 0.4, r * 0.6 * wing],
-        [-r * 0.1, r * 0.68 * wing],
-        [-r * 0.5, r * 1.3 * wing],
-        [-r * 1.05, r * 1.2 * wing],
-        [-r * 1.25, r * 0.5 * wing],
-        [-r * 1.55, r * 0.22 * wing],
-        [-r * 1.55, -r * 0.22 * wing],
-        [-r * 1.25, -r * 0.5 * wing],
-        [-r * 1.05, -r * 1.2 * wing],
-        [-r * 0.5, -r * 1.3 * wing],
-        [-r * 0.1, -r * 0.68 * wing],
-        [r * 0.4, -r * 0.6 * wing],
-        [r * 0.95, -r * 0.28 * wing],
-      ];
-    default:
-      return [
-        [r * 1.75 * nose, 0],
-        [r * 1.05, r * 0.3 * wing],
-        [r * 0.5, r * 0.55 * wing],
-        [r * 0.05, r * 0.72 * wing],
-        [-r * 0.35, r * 0.8 * wing],
-        [-r * 0.7, r * 1.5 * wing],
-        [-r * 1.2, r * 1.45 * wing],
-        [-r * 1.35, r * 0.62 * wing],
-        [-r * 1.8, r * 0.3 * wing],
-        [-r * 1.35, 0],
-        [-r * 1.8, -r * 0.3 * wing],
-        [-r * 1.35, -r * 0.62 * wing],
-        [-r * 1.2, -r * 1.45 * wing],
-        [-r * 0.7, -r * 1.5 * wing],
-        [-r * 0.35, -r * 0.8 * wing],
-        [r * 0.05, -r * 0.72 * wing],
-        [r * 0.5, -r * 0.55 * wing],
-        [r * 1.05, -r * 0.3 * wing],
+        [r * 1.9 * nose, 0],
+        [r * 0.85, r * 0.14 * wing],
+        [r * 1.25, r * 0.5 * wing],
+        [r * 0.4, r * 0.58 * wing],
+        [-r * 0.1, r * 0.95 * wing],
+        [-r * 0.7, r * 1.32 * wing],
+        [-r * 0.55, r * 0.62 * wing],
+        [-r * 1.3, r * 0.48 * wing],
+        [-r * 0.85, 0],
+        [-r * 1.3, -r * 0.48 * wing],
+        [-r * 0.55, -r * 0.62 * wing],
+        [-r * 0.7, -r * 1.32 * wing],
+        [-r * 0.1, -r * 0.95 * wing],
+        [r * 0.4, -r * 0.58 * wing],
+        [r * 1.25, -r * 0.5 * wing],
+        [r * 0.85, -r * 0.14 * wing],
       ];
   }
 }
@@ -833,7 +849,7 @@ function tracePath(ctx: CanvasRenderingContext2D, pts: Pt[]) {
 /** Gemiyi (0,0) merkezli, +x ileri yönlü çizer. */
 export function drawShipShape(
   ctx: CanvasRenderingContext2D,
-  sizeClass: SizeClass,
+  raceId: number,
   r: number,
   color: string,
   dark: string,
@@ -842,7 +858,7 @@ export function drawShipShape(
   variant = 0,
   accent: string | null = null,
 ) {
-  const pts = hullPath(sizeClass, r, variant);
+  const pts = racePath(raceId, r, variant);
 
   ctx.save();
   ctx.shadowColor = color;
@@ -908,8 +924,7 @@ export function drawShipShape(
   ctx.fill();
   ctx.restore();
 
-  const guns =
-    sizeClass === "scout" ? 1 : sizeClass === "fighter" ? 2 : sizeClass === "gunship" ? 3 : 4;
+  const guns = Math.min(4, 1 + Math.floor(r / 9));
   ctx.fillStyle = "rgba(10,14,24,.9)";
   for (let i = 0; i < guns; i++) {
     const off = guns === 1 ? 0 : (i / (guns - 1) - 0.5) * r * 1.15;
