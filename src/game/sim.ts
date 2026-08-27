@@ -25,6 +25,24 @@ import { SYSTEMS, SYSTEM_ORDER, type SysKey } from "./systems";
 export const SESSION_TIME = 720;
 const BRANCH_TIMEOUT = 12;
 
+export type CrateType = "shield" | "damage" | "speed" | "vacuum" | "xp" | "antimatter";
+export const CRATE_LABELS: Record<CrateType, string> = {
+  shield: "Kalkan Bataryası",
+  damage: "Hasar Yükseltici",
+  speed: "Hız Atılımı",
+  vacuum: "Vakum Çekirdeği",
+  xp: "Veri Matrisi",
+  antimatter: "Antimadde Çekirdeği",
+};
+export const CRATE_COLORS: Record<CrateType, string> = {
+  shield: "#7ec8ff",
+  damage: "#ff6b5a",
+  speed: "#ffd65a",
+  vacuum: "#9e7aff",
+  xp: "#7affb0",
+  antimatter: "#e0b0ff",
+};
+
 export interface Cmd {
   ax: number;
   ay: number;
@@ -90,6 +108,7 @@ interface Ship {
   invulnT: number;
   comboN: number;
   comboT: number;
+  comboMul: number;
   plates: number;
   plateT: number;
   burstT: number;
@@ -98,6 +117,17 @@ interface Ship {
   starTouched: boolean;
   mining: boolean;
   beamTargets: Resource[];
+  cloakT: number;
+  overchargeT: number;
+  overheatT: number;
+  damageBuffT: number;
+  speedBuffT: number;
+  vacuumT: number;
+  xpBuffT: number;
+  warpCd: number;
+  hitStop: number;
+  squashT: number;
+  cloakStrike: boolean;
   upPoints: number;
   up: Record<UpKey, number>;
   sys: Record<SysKey, SysState>;
@@ -229,6 +259,40 @@ interface DefenseStructure {
   radius: number;
 }
 
+interface SupplyCrate {
+  x: number;
+  y: number;
+  vx: number;
+  vy: number;
+  type: CrateType;
+  life: number;
+  phase: number;
+  radius: number;
+}
+
+interface WarpGate {
+  id: number;
+  x: number;
+  y: number;
+  pairId: number;
+  angle: number;
+  radius: number;
+  rot: number;
+}
+
+interface Boss {
+  x: number;
+  y: number;
+  vx: number;
+  vy: number;
+  hp: number;
+  maxHp: number;
+  radius: number;
+  angle: number;
+  fireCd: number;
+  alive: boolean;
+}
+
 export interface Standing {
   raceId: number;
   name: string;
@@ -281,9 +345,25 @@ export interface HudState {
   canBuild: boolean;
   buildCost: number;
   aliveTeams: { name: string; color: string; alive: boolean }[];
+  comboN: number;
+  comboMul: number;
+  crates: { x: number; y: number; type: CrateType }[];
+  boss: { x: number; y: number; hp: number; maxHp: number; alive: boolean } | null;
+  bossWarning: number;
+  gates: { x: number; y: number; pairId: number }[];
+  warpCd: number;
+  cloakT: number;
+  overchargeT: number;
+  overheatT: number;
+  damageBuffT: number;
+  speedBuffT: number;
+  vacuumT: number;
+  xpBuffT: number;
+  hitStop: number;
+  roundElapsed: number;
 }
 
-const rand01 = Math.random;
+// deterministik RNG — Math.random kaldırıldı
 
 export class Sim {
   seed: number;
@@ -298,6 +378,32 @@ export class Sim {
   holes: Hole[] = [];
   bases: Base[] = [];
   structures: DefenseStructure[] = [];
+  crates: SupplyCrate[] = [];
+  gates: WarpGate[] = [];
+  boss: Boss | null = null;
+  bossWarning = 0;
+  nextCrateT = 8;
+  nextBossT = 60;
+  hitStop = 0;
+  orbitalStrikes: {
+    x: number;
+    y: number;
+    r: number;
+    delay: number;
+    life: number;
+    dmg: number;
+    raceId: number;
+    ownerId: number;
+  }[] = [];
+  gravityWells: {
+    x: number;
+    y: number;
+    r: number;
+    targetR: number;
+    life: number;
+    raceId: number;
+    ownerId: number;
+  }[] = [];
   starsBg: { x: number; y: number; r: number; d: number; tw: number }[] = [];
   nebulas: { x: number; y: number; r: number; c: string }[] = [];
   player!: Ship;
@@ -431,6 +537,30 @@ export class Sim {
       }
     }
 
+    // Warp kapıları: 2 çift
+    this.gates = [
+      { id: 0, x: WORLD * 0.32, y: WORLD * 0.48, pairId: 1, angle: 0, radius: 88, rot: 0 },
+      { id: 1, x: WORLD * 0.68, y: WORLD * 0.52, pairId: 0, angle: Math.PI, radius: 88, rot: 0 },
+      {
+        id: 2,
+        x: WORLD * 0.48,
+        y: WORLD * 0.32,
+        pairId: 3,
+        angle: Math.PI * 0.5,
+        radius: 88,
+        rot: 0,
+      },
+      {
+        id: 3,
+        x: WORLD * 0.52,
+        y: WORLD * 0.68,
+        pairId: 2,
+        angle: -Math.PI * 0.5,
+        radius: 88,
+        rot: 0,
+      },
+    ];
+
     for (const race of RACES) {
       for (let i = 0; i < 7; i++) {
         const s = this.makeShip(race, false, BOT_NAMES[(race.id * 5 + i) % BOT_NAMES.length]!);
@@ -482,12 +612,12 @@ export class Sim {
     this.resources.push({
       x,
       y,
-      vx: rand01() * 8 - 4,
-      vy: rand01() * 8 - 4,
+      vx: this.rng.next() * 8 - 4,
+      vy: this.rng.next() * 8 - 4,
       raceId: -1,
       amount: 1,
       radius: 12,
-      phase: rand01() * TAU,
+      phase: this.rng.next() * TAU,
       anti: true,
       resType: "dark",
     });
@@ -553,6 +683,7 @@ export class Sim {
       invulnT: 1.2,
       comboN: 0,
       comboT: 0,
+      comboMul: 1,
       plates: 0,
       plateT: 0,
       burstT: 0,
@@ -570,6 +701,12 @@ export class Sim {
         blink: { lv: 0, cd: 0 },
         trap: { lv: 0, cd: 0 },
         gas: { lv: 0, cd: 0 },
+        emp: { lv: 0, cd: 0 },
+        nanite: { lv: 0, cd: 0 },
+        cloak: { lv: 0, cd: 0 },
+        gravity: { lv: 0, cd: 0 },
+        orbital: { lv: 0, cd: 0 },
+        overcharge: { lv: 0, cd: 0 },
       },
       pendingBranch: null,
       alive: true,
@@ -588,6 +725,17 @@ export class Sim {
       shieldPierce: false,
       bank: 0,
       pierceOwned: false,
+      cloakT: 0,
+      overchargeT: 0,
+      overheatT: 0,
+      damageBuffT: 0,
+      speedBuffT: 0,
+      vacuumT: 0,
+      xpBuffT: 0,
+      warpCd: 0,
+      hitStop: 0,
+      squashT: 0,
+      cloakStrike: false,
     };
     this.syncSystems(s);
     this.applyTier(s);
@@ -694,7 +842,28 @@ export class Sim {
       this.time += dt;
       return;
     }
+    if (this.hitStop > 0) this.hitStop -= dt;
     this.time += dt;
+    this.session.t -= dt;
+    if (this.session.t <= 0 && this.session.phase === "live") {
+      const alive = this.bases.filter((b) => b.alive);
+      if (alive.length > 0) {
+        const byScore = [...alive].sort((a, b) => {
+          const sa = this.ships
+            .filter((s) => s.raceId === a.raceId)
+            .reduce((acc, s) => acc + s.score, 0);
+          const sb = this.ships
+            .filter((s) => s.raceId === b.raceId)
+            .reduce((acc, s) => acc + s.score, 0);
+          return sb - sa;
+        });
+        this.session.winner = byScore[0]!.raceId;
+        this.endSession("time");
+      } else {
+        this.endSession("time");
+      }
+      return;
+    }
 
     if (this.player.pendingBranch) {
       this.player.pendingBranch.t -= dt;
@@ -704,6 +873,7 @@ export class Sim {
     for (const base of this.bases) base.rot += dt * 0.15;
     for (const h of this.holes) h.rot -= dt * 0.6;
     for (const st of this.stars) st.rot += dt * 0.05;
+    for (const g of this.gates) g.rot += dt * 0.9;
 
     this.shipGrid.clear();
     for (const s of this.ships) if (s.alive) this.shipGrid.insert(s);
@@ -727,12 +897,33 @@ export class Sim {
       this.statusTick(s, dt);
 
       if (s.fireCd > 0) s.fireCd -= dt;
-      if (cmd.fire) this.fire(s);
+      if (cmd.fire && s.cloakT <= 0) {
+        // cloak breaks on fire but grants strike bonus
+        const wasCloaked = s.cloakT > 0;
+        this.fire(s);
+        if (wasCloaked) s.cloakStrike = true;
+      } else if (s.cloakT > 0 && cmd.fire) {
+        // still allow fire but break cloak
+        s.cloakT = 0;
+        s.cloakStrike = true;
+        this.fire(s);
+      } else if (cmd.fire) this.fire(s);
       if (s.hitFlash > 0) s.hitFlash -= dt * 4;
       if (s.invulnT > 0) s.invulnT -= dt;
       if (s.comboT > 0) {
         s.comboT -= dt;
-        if (s.comboT <= 0) s.comboN = 0;
+        if (s.comboT <= 0) {
+          s.comboN = 0;
+          s.comboMul = 1;
+        } else {
+          // combo multiplier: 5→1.3, 10→1.6, 20→2.0 lerp
+          if (s.comboN >= 20) s.comboMul = 2.0;
+          else if (s.comboN >= 10) s.comboMul = 1.6 + (s.comboN - 10) * 0.04;
+          else if (s.comboN >= 5) s.comboMul = 1.3 + (s.comboN - 5) * 0.06;
+          else s.comboMul = 1 + s.comboN * 0.06;
+        }
+      } else {
+        s.comboMul = 1;
       }
       if (s.plateT > 0) {
         s.plateT -= dt;
@@ -744,6 +935,22 @@ export class Sim {
       if (s.stunT > 0) s.stunT -= dt;
       if (s.blindT > 0) s.blindT -= dt;
       if (s.overT > 0) s.overT -= dt;
+      const prevOC = s.overchargeT;
+      if (s.cloakT > 0) s.cloakT -= dt;
+      if (s.overchargeT > 0) s.overchargeT -= dt;
+      if (prevOC > 0 && s.overchargeT <= 0) s.overheatT = 3.0;
+      if (s.overheatT > 0) s.overheatT -= dt;
+      if (s.damageBuffT > 0) s.damageBuffT -= dt;
+      if (s.speedBuffT > 0) s.speedBuffT -= dt;
+      if (s.vacuumT > 0) s.vacuumT -= dt;
+      if (s.xpBuffT > 0) s.xpBuffT -= dt;
+      if (s.warpCd > 0) s.warpCd -= dt;
+      if (s.hitStop > 0) s.hitStop -= dt;
+      if (s.squashT > 0) s.squashT -= dt;
+      if (s.cloakStrike && s.fireCd <= 0) {
+        // cloak strike bonus expires after next shot window or 1.5s
+        // handled via damage calc, clear after 2s
+      }
     }
 
     this.waterAuras(dt);
@@ -755,6 +962,11 @@ export class Sim {
     this.updateResources(dt);
     this.updateBases(dt);
     this.updateStructures(dt);
+    this.updateCrates(dt);
+    this.updateGates(dt);
+    this.updateBoss(dt);
+    this.updateGravityWells(dt);
+    this.updateOrbital(dt);
     this.shipCollisions();
     this.checkDomination();
 
@@ -802,6 +1014,29 @@ export class Sim {
       this.spawnAsteroid(this.rng.range(100, WORLD - 100), this.rng.range(100, WORLD - 100));
     }
 
+    // İkmal kasası zamanlayıcı
+    this.nextCrateT -= dt;
+    if (this.nextCrateT <= 0 && this.crates.length < 6) {
+      this.nextCrateT = 18 + this.rng.range(-3, 5);
+      this.spawnCrate();
+    }
+    // Boss zamanlayıcı
+    this.nextBossT -= dt;
+    if (this.bossWarning > 0) this.bossWarning -= dt;
+    if (this.nextBossT <= 0 && !this.boss) {
+      if (this.bossWarning <= 0) {
+        this.bossWarning = 10;
+        this.toast = "⚠ LEVIATHAN YAKLAŞIYOR — MERKEZDE BELİRECEK!";
+        this.toastT = 4;
+        this.ev({ type: "alarm", raceId: -1 });
+        this.nextBossT = 10;
+      } else {
+        this.spawnBoss();
+        this.nextBossT = 90 + this.rng.range(-10, 20);
+        this.bossWarning = 0;
+      }
+    }
+
     if (this.toastT > 0) {
       this.toastT -= dt;
       if (this.toastT <= 0) this.toast = null;
@@ -814,11 +1049,12 @@ export class Sim {
 
     const lowBase =
       this.bases[this.player.raceId]!.energy / this.bases[this.player.raceId]!.energyMax < 0.2;
-    if (lowBase && Math.random() < dt * 0.2) this.ev({ type: "alarm", raceId: this.player.raceId });
+    if (lowBase && this.rng.next() < dt * 0.2)
+      this.ev({ type: "alarm", raceId: this.player.raceId });
     if (
       this.player.alive &&
       this.player.hp / this.player.maxHp < 0.25 &&
-      Math.random() < dt * 0.5
+      this.rng.next() < dt * 0.5
     ) {
       this.ev({ type: "lowhp", raceId: this.player.raceId });
     }
@@ -888,12 +1124,18 @@ export class Sim {
     }
     const slowK = s.slowT > 0 ? 0.55 : 1;
     const mineK = s.mining ? 0.7 : 1;
+    const cloakK = s.cloakT > 0 ? 1.42 : 1;
+    const speedBuffK = s.speedBuffT > 0 ? 1.45 : 1;
+    const overchargeK = s.overchargeT > 0 ? 1.18 : 1;
     const maxSpd =
       s.tier.speed *
       this.mul(s, "speed") *
       tm.spd *
       slowK *
       mineK *
+      cloakK *
+      speedBuffK *
+      overchargeK *
       (s.burstT > 0 ? 1.45 : 1) *
       (s.boosting ? 1.75 : 1);
     s.mining = false;
@@ -1000,16 +1242,22 @@ export class Sim {
 
   /* ---------------- silahlar ---------------- */
   fire(s: Ship) {
-    if (s.fireCd > 0) return;
+    if (s.fireCd > 0 || s.overheatT > 0) return;
     const w = s.tier.weapon;
-    s.fireCd = s.tier.fireRate / this.mul(s, "firerate");
+    const overchargeFire = s.overchargeT > 0 ? 0.58 : 1;
+    s.fireCd = (s.tier.fireRate / this.mul(s, "firerate")) * overchargeFire;
     const bm = this.baseMul(s);
-    const comboBonus =
-      s.race.weapon === "flak" ? 1 + s.comboN * 0.03 : s.comboN > 0 ? 1 + s.comboN * 0.015 : 1;
-    const dmg = s.tier.damage * w.dmgMul * this.mul(s, "damage") * bm.dmg * comboBonus;
+    const comboBonus = s.comboMul || 1;
+    let dmg = s.tier.damage * w.dmgMul * this.mul(s, "damage") * bm.dmg * comboBonus;
+    if (s.damageBuffT > 0) dmg *= 1.85;
+    if (s.overchargeT > 0) dmg *= 1.28;
+    if (s.cloakStrike) {
+      dmg *= 1.45;
+      s.cloakStrike = false;
+    }
     for (let i = 0; i < w.shots; i++) {
       const off = w.shots === 1 ? 0 : (i / (w.shots - 1) - 0.5) * 2;
-      const ang = s.angle + off * w.spread + (rand01() - 0.5) * 0.03;
+      const ang = s.angle + off * w.spread + (this.rng.next() - 0.5) * 0.03;
       const px =
         s.x + Math.cos(s.angle) * s.radius * 0.9 - Math.sin(s.angle) * off * s.radius * 0.5;
       const py =
@@ -1298,14 +1546,344 @@ export class Sim {
     }
   }
 
+  /* ---------------- ikmal kasaları ---------------- */
+  spawnCrate() {
+    const types: CrateType[] = ["shield", "damage", "speed", "vacuum", "xp", "antimatter"];
+    const t = this.rng.pick(types);
+    const x = this.rng.range(WORLD * 0.2, WORLD * 0.8);
+    const y = this.rng.range(WORLD * 0.2, WORLD * 0.8);
+    this.crates.push({
+      x,
+      y,
+      vx: this.rng.range(-18, 18),
+      vy: this.rng.range(-18, 18),
+      type: t,
+      life: 28,
+      phase: this.rng.angle(),
+      radius: 22,
+    });
+    this.ev({ type: "crate", x, y, text: CRATE_LABELS[t] });
+  }
+
+  updateCrates(dt: number) {
+    for (let i = this.crates.length - 1; i >= 0; i--) {
+      const c = this.crates[i]!;
+      c.x += c.vx * dt;
+      c.y += c.vy * dt;
+      c.vx *= 0.985;
+      c.vy *= 0.985;
+      c.phase += dt * 2;
+      c.life -= dt;
+      // bounce off edges
+      if (c.x < 40 || c.x > WORLD - 40) c.vx *= -1;
+      if (c.y < 40 || c.y > WORLD - 40) c.vy *= -1;
+      c.x = clamp(c.x, 40, WORLD - 40);
+      c.y = clamp(c.y, 40, WORLD - 40);
+      if (c.life <= 0) {
+        this.crates.splice(i, 1);
+        continue;
+      }
+      // vacuum bonus pulls crates
+      // check collection by any ship
+      const near = this.shipGrid.query(c.x, c.y, c.radius + 90, this.qShip);
+      for (const s of near) {
+        if (!s.alive) continue;
+        const d = Math.hypot(s.x - c.x, s.y - c.y);
+        const pull = s.vacuumT > 0 ? 520 / Math.max(30, d) : 0;
+        if (pull > 0 && d < 520) {
+          c.vx += ((s.x - c.x) / d) * pull * dt * 2;
+          c.vy += ((s.y - c.y) / d) * pull * dt * 2;
+        }
+        if (d < s.radius + c.radius) {
+          this.collectCrate(s, c);
+          this.crates.splice(i, 1);
+          break;
+        }
+      }
+    }
+  }
+
+  collectCrate(s: Ship, c: SupplyCrate) {
+    const t = c.type;
+    switch (t) {
+      case "shield":
+        s.shield = this.effShieldMax(s);
+        s.shieldDelay = 0;
+        this.ev({ type: "deliver", x: s.x, y: s.y, raceId: s.raceId });
+        break;
+      case "damage":
+        s.damageBuffT = 8;
+        this.ev({ type: "overcharge", x: s.x, y: s.y, raceId: s.raceId });
+        break;
+      case "speed":
+        s.speedBuffT = 6;
+        s.boost = 100;
+        this.ev({ type: "overcharge", x: s.x, y: s.y, raceId: s.raceId });
+        break;
+      case "vacuum":
+        s.vacuumT = 10;
+        this.ev({ type: "void", x: s.x, y: s.y, raceId: s.raceId, pitch: 1 });
+        break;
+      case "xp":
+        s.xpBuffT = 14;
+        this.ev({ type: "levelup", x: s.x, y: s.y, raceId: s.raceId });
+        break;
+      case "antimatter":
+        s.anti += 2;
+        s.bank += 12;
+        this.ev({ type: "antiget", x: s.x, y: s.y, raceId: s.raceId });
+        break;
+    }
+    if (s.isPlayer) {
+      this.toast = `${CRATE_LABELS[t]} alındı!`;
+      this.toastT = 2;
+      this.ev({ type: "collect", x: c.x, y: c.y, text: `⬢ ${CRATE_LABELS[t]}`, raceId: s.raceId });
+    }
+    this.grantXp(s, 25 * (s.xpBuffT > 0 ? 2 : 1));
+    s.score += 15;
+  }
+
+  /* ---------------- warp kapıları ---------------- */
+  updateGates(dt: number) {
+    for (const g of this.gates) {
+      const near = this.shipGrid.query(g.x, g.y, g.radius + 40, this.qShip);
+      for (const s of near) {
+        if (!s.alive || s.warpCd > 0 || s.stunT > 0) continue;
+        const d = Math.hypot(s.x - g.x, s.y - g.y);
+        if (d < g.radius) {
+          const pair = this.gates.find((o) => o.id === g.pairId);
+          if (!pair) continue;
+          const ang = Math.atan2(pair.y - g.y, pair.x - g.x) || g.angle;
+          s.x = pair.x + Math.cos(ang) * (pair.radius + s.radius + 10);
+          s.y = pair.y + Math.sin(ang) * (pair.radius + s.radius + 10);
+          // preserve momentum + add exit impulse
+          const spd = Math.hypot(s.vx, s.vy) || 120;
+          s.vx = Math.cos(ang) * Math.max(spd, 220);
+          s.vy = Math.sin(ang) * Math.max(spd, 220);
+          s.warpCd = 2.5;
+          s.invulnT = Math.max(s.invulnT, 0.9);
+          this.ev({ type: "warphop", x: g.x, y: g.y, raceId: s.raceId });
+          this.ev({ type: "teleport", x: pair.x, y: pair.y, raceId: s.raceId, pitch: 1.4 });
+          break;
+        }
+      }
+    }
+  }
+
+  /* ---------------- boss ---------------- */
+  spawnBoss() {
+    const cx = WORLD * 0.5 + this.rng.range(-600, 600);
+    const cy = WORLD * 0.5 + this.rng.range(-600, 600);
+    this.boss = {
+      x: cx,
+      y: cy,
+      vx: this.rng.range(-30, 30),
+      vy: this.rng.range(-30, 30),
+      hp: 1400,
+      maxHp: 1400,
+      radius: 64,
+      angle: this.rng.angle(),
+      fireCd: 1,
+      alive: true,
+    };
+    this.toast = "☠ LEVIATHAN BELİRDİ!";
+    this.toastT = 3.5;
+    this.ev({ type: "explode", x: cx, y: cy, raceId: -1, size: 120 });
+  }
+
+  updateBoss(dt: number) {
+    const b = this.boss;
+    if (!b || !b.alive) return;
+    b.x += b.vx * dt;
+    b.y += b.vy * dt;
+    b.angle += dt * 0.6;
+    if (b.x < b.radius + 80 || b.x > WORLD - b.radius - 80) b.vx *= -1;
+    if (b.y < b.radius + 80 || b.y > WORLD - b.radius - 80) b.vy *= -1;
+    b.fireCd -= dt;
+    if (b.fireCd <= 0) {
+      b.fireCd = 1.1;
+      // find nearest player or bot
+      let nearest: Ship | null = null;
+      let bd = 900;
+      const near = this.shipGrid.query(b.x, b.y, bd, this.qShip);
+      for (const s of near) {
+        if (!s.alive) continue;
+        const d = Math.hypot(s.x - b.x, s.y - b.y);
+        if (d < bd) {
+          bd = d;
+          nearest = s;
+        }
+      }
+      if (nearest) {
+        const ang = Math.atan2(nearest.y - b.y, nearest.x - b.x);
+        for (let k = -1; k <= 1; k++) {
+          const aa = ang + k * 0.28;
+          this.bullets.push({
+            x: b.x + Math.cos(aa) * b.radius,
+            y: b.y + Math.sin(aa) * b.radius,
+            vx: Math.cos(aa) * 460,
+            vy: Math.sin(aa) * 460,
+            dmg: 26,
+            life: 1.6,
+            raceId: -1,
+            ownerId: -2,
+            radius: 4,
+            homing: 0,
+            pierce: 0,
+            burn: 4,
+            kind: "flak",
+            splash: 30,
+            trail: [],
+            shieldPierce: false,
+          });
+        }
+        this.ev({ type: "fire", x: b.x, y: b.y, raceId: -1 });
+      }
+    }
+    // bullet vs boss
+    for (let i = this.bullets.length - 1; i >= 0; i--) {
+      const bl = this.bullets[i]!;
+      if (bl.raceId === -1) continue;
+      if (Math.hypot(bl.x - b.x, bl.y - b.y) < b.radius + bl.radius) {
+        b.hp -= bl.dmg;
+        this.ev({ type: "bosshit", x: bl.x, y: bl.y });
+        if (bl.pierce > 0) bl.pierce--;
+        else this.bullets.splice(i, 1);
+        if (b.hp <= 0) {
+          b.alive = false;
+          this.ev({ type: "bosskill", x: b.x, y: b.y, size: 180 });
+          this.ev({ type: "explode", x: b.x, y: b.y, raceId: -1, size: 180 });
+          // drop rewards
+          const owner = this.ships.find((s) => s.id === bl.ownerId) ?? this.player;
+          for (let k = 0; k < 10; k++) {
+            this.resources.push({
+              x: b.x + this.rng.range(-80, 80),
+              y: b.y + this.rng.range(-80, 80),
+              vx: this.rng.range(-60, 60),
+              vy: this.rng.range(-60, 60),
+              raceId: -1,
+              amount: 2,
+              radius: 12,
+              phase: this.rng.angle(),
+              anti: true,
+              resType: "dark",
+            });
+          }
+          for (let k = 0; k < 16; k++) {
+            this.resources.push({
+              x: b.x + this.rng.range(-90, 90),
+              y: b.y + this.rng.range(-90, 90),
+              vx: this.rng.range(-50, 50),
+              vy: this.rng.range(-50, 50),
+              raceId: Math.floor(this.rng.next() * 4),
+              amount: 3,
+              radius: 10,
+              phase: this.rng.angle(),
+              anti: false,
+              resType: "stellar",
+            });
+          }
+          if (owner) {
+            this.grantXp(owner, 220);
+            owner.score += 260;
+            owner.bank += 40;
+          }
+          this.boss = null;
+          break;
+        }
+      }
+    }
+    // ship vs boss collision
+    const near = this.shipGrid.query(b.x, b.y, b.radius + 80, this.qShip);
+    for (const s of near) {
+      if (!s.alive) continue;
+      const d = Math.hypot(s.x - b.x, s.y - b.y);
+      if (d < s.radius + b.radius) {
+        // push
+        const nx = (s.x - b.x) / (d || 1);
+        const ny = (s.y - b.y) / (d || 1);
+        s.x += nx * 6;
+        s.y += ny * 6;
+        this.damage(s, 18 * dt, null, true);
+      }
+    }
+  }
+
+  updateGravityWells(dt: number) {
+    for (let i = this.gravityWells.length - 1; i >= 0; i--) {
+      const g = this.gravityWells[i]!;
+      g.life -= dt;
+      if (g.r < g.targetR) g.r = Math.min(g.targetR, g.r + 90 * dt);
+      if (g.life <= 0) {
+        this.gravityWells.splice(i, 1);
+        continue;
+      }
+      const near = this.shipGrid.query(g.x, g.y, g.r + 60, this.qShip);
+      for (const s of near) {
+        if (!s.alive || s.raceId === g.raceId) continue;
+        const d = Math.hypot(s.x - g.x, s.y - g.y);
+        if (d < g.r && d > 5) {
+          const pull = 140 * (1 - d / g.r) + 30;
+          s.vx += ((g.x - s.x) / d) * pull * dt;
+          s.vy += ((g.y - s.y) / d) * pull * dt;
+          s.slowT = Math.max(s.slowT, 0.5);
+        }
+      }
+    }
+  }
+
+  updateOrbital(dt: number) {
+    for (let i = this.orbitalStrikes.length - 1; i >= 0; i--) {
+      const o = this.orbitalStrikes[i]!;
+      if (o.delay > 0) {
+        o.delay -= dt;
+        if (o.delay <= 0) {
+          // strike!
+          const near = this.shipGrid.query(o.x, o.y, o.r + 60, this.qShip);
+          const owner = this.ships.find((s) => s.id === o.ownerId) ?? null;
+          for (const s of near) {
+            if (!s.alive || s.raceId === o.raceId || s.invulnT > 0) continue;
+            const d = Math.hypot(s.x - o.x, s.y - o.y);
+            if (d < o.r) {
+              const falloff = 1 - d / o.r;
+              this.damage(s, o.dmg * falloff, owner, false);
+              s.burn += (3 + (owner ? owner.sys.orbital.lv : 0)) * falloff;
+              s.squashT = 0.2;
+            }
+          }
+          // damage bases
+          for (const b of this.bases) {
+            if (!b.alive || b.raceId === o.raceId) continue;
+            if (Math.hypot(b.x - o.x, b.y - o.y) < o.r + b.radius) {
+              this.hitBase(b, o.dmg * 0.7, o.raceId);
+            }
+          }
+          this.ev({ type: "explode", x: o.x, y: o.y, raceId: o.raceId, size: o.r });
+          this.shakeReq = Math.max(this.shakeReq, 14);
+          this.hitStop = Math.max(this.hitStop, 0.07);
+          o.life = 0.35;
+        }
+      } else {
+        o.life -= dt;
+        if (o.life <= 0) this.orbitalStrikes.splice(i, 1);
+      }
+    }
+  }
+
   /* ---------------- hasar / ölüm ---------------- */
   damage(s: Ship, amount: number, from: Ship | null, silent: boolean, shieldPierce = false) {
     if (!s.alive || amount <= 0 || s.invulnT > 0) return;
+    // cloak reduces incoming damage
+    if (s.cloakT > 0) amount *= 0.45;
     s.shieldDelay = 1.6;
     s.hitFlash = 1;
+    s.squashT = 0.14;
+    // juice: small hitStop on heavy hit
+    if (amount > 22 && !silent) this.hitStop = Math.min(0.08, this.hitStop + 0.04);
 
     if (s.raceId === 3 && from) {
-      s.comboN = Math.min(8, s.comboN + 1);
+      s.comboN = Math.min(20, s.comboN + 1);
+      s.comboT = 3.5;
     }
     if (s.raceId === 2) {
       s.plates = Math.min(10, s.plates + 1);
@@ -1313,20 +1891,28 @@ export class Sim {
     }
 
     const effMax = this.effShieldMax(s);
+    let shieldBroke = false;
     if (s.shield > 0 && !shieldPierce) {
       const abs = Math.min(s.shield, amount);
       s.shield -= abs;
       amount -= abs;
+      if (s.shield <= 0 && abs > 0) shieldBroke = true;
       if (s.shield <= 0 && s.raceId === 0 && s.burstCd <= 0) {
         s.burstT = 2.5;
         s.burstCd = 12;
         this.ev({ type: "teleport", x: s.x, y: s.y, raceId: 0, pitch: 1.4 });
       }
     }
+    if (shieldBroke) {
+      this.ev({ type: "shieldbreak", x: s.x, y: s.y, raceId: s.raceId });
+      this.hitStop = Math.max(this.hitStop, 0.06);
+      if (s.isPlayer) this.shakeReq = Math.max(this.shakeReq, 7);
+    }
     if (amount > 0 && s.raceId === 2 && s.plates > 0) amount *= 1 - s.plates * 0.02;
     s.hp -= amount;
-    if (!silent && s.isPlayer) this.shakeReq = Math.min(16, this.shakeReq + amount * 0.25);
-    if (s.channelT > 0 && Math.random() < 0.3) {
+    if (!silent && s.isPlayer) this.shakeReq = Math.min(16, this.shakeReq + amount * 0.22);
+    else if (!silent && amount > 30) this.shakeReq = Math.min(10, this.shakeReq + amount * 0.08);
+    if (s.channelT > 0 && this.rng.next() < 0.3) {
       s.channelT = 0;
       this.damage(s, 22, null, true);
     }
@@ -1337,13 +1923,14 @@ export class Sim {
     s.alive = false;
     s.respawnT = s.isPlayer ? 999 : 4;
     s.deadT = 0;
+    this.hitStop = Math.max(this.hitStop, 0.09);
     this.ev({ type: "explode", x: s.x, y: s.y, raceId: s.raceId, size: s.radius * 2.2 });
     for (let i = 0; i < Math.min(8, 3 + s.level / 3); i++) {
       this.resources.push({
-        x: s.x + rand01() * 60 - 30,
-        y: s.y + rand01() * 60 - 30,
-        vx: rand01() * 180 - 90,
-        vy: rand01() * 180 - 90,
+        x: s.x + this.rng.range(-30, 30),
+        y: s.y + this.rng.range(-30, 30),
+        vx: this.rng.range(-90, 90),
+        vy: this.rng.range(-90, 90),
         raceId: s.raceId,
         amount: 2,
         radius: 10,
@@ -1356,12 +1943,22 @@ export class Sim {
       killer.kills++;
       killer.score += 40 + s.level * 18;
       this.grantXp(killer, 45 + s.level * 22);
+      // combo stacking
+      killer.comboN = Math.min(20, killer.comboN + 2);
+      killer.comboT = 3.5;
+      this.ev({
+        type: "combo",
+        x: killer.x,
+        y: killer.y,
+        raceId: killer.raceId,
+        text: `KOMBO ${killer.comboN}`,
+      });
     }
     this.onKill?.(killer?.raceId ?? -1, s.raceId, killer?.level ?? 0, s.level);
     const colorMap = ["#5fd4ff", "#3f7fff", "#7ad13a", "#ff5a3c"];
     const text = killer ? `${killer.name} ⟶ ${s.name}` : `${s.name} yok edildi`;
     this.killfeed.unshift({
-      id: Math.random(),
+      id: this.rng.next(),
       text,
       color: killer ? colorMap[killer.raceId]! : "#8ea0bd",
       t: 6,
@@ -1378,8 +1975,8 @@ export class Sim {
   respawn(s: Ship) {
     const b = s.race.base;
     s.alive = true;
-    s.x = b.x + rand01() * 240 - 120;
-    s.y = b.y + rand01() * 240 - 120;
+    s.x = b.x + this.rng.next() * 240 - 120;
+    s.y = b.y + this.rng.next() * 240 - 120;
     s.vx = 0;
     s.vy = 0;
     s.cargo = 0;
@@ -1406,6 +2003,7 @@ export class Sim {
   }
 
   grantXp(s: Ship, amount: number) {
+    if (s.xpBuffT > 0) amount *= 2;
     s.score += Math.round(amount * 0.4);
     if (s.level >= MAX_LEVEL) return;
     s.xp += amount;
@@ -1528,9 +2126,9 @@ export class Sim {
         r.vy += ((s.y - r.y) / d) * pull * dt * 60;
         const grabR = s.radius + r.radius + 14;
         if (d < grabR) {
-          if (r.resType === "solar" && Math.random() < dt * 4)
+          if (r.resType === "solar" && this.rng.next() < dt * 4)
             this.ev({ type: "solarmine", x: r.x, y: r.y });
-          else if (r.resType === "dark" && Math.random() < dt * 4)
+          else if (r.resType === "dark" && this.rng.next() < dt * 4)
             this.ev({ type: "darkmine", x: r.x, y: r.y });
           this.collect(s, r, 1 + lv * 0.5);
         }
@@ -1555,7 +2153,7 @@ export class Sim {
             s.channelT = 0;
           }
           s.channelT += dt;
-          if (Math.random() < dt * 5) this.ev({ type: "void", x: r.x, y: r.y, pitch: 2.2 });
+          if (this.rng.next() < dt * 5) this.ev({ type: "void", x: r.x, y: r.y, pitch: 2.2 });
           if (s.channelT >= 1.2) {
             s.channelT = 0;
             s.channelTarget = null;
@@ -1574,7 +2172,7 @@ export class Sim {
     }
     if (beaming) {
       s.mining = true;
-      if (Math.random() < dt * 8)
+      if (this.rng.next() < dt * 8)
         this.ev({ type: "void", x: s.beamTargets[0]!.x, y: s.beamTargets[0]!.y, pitch: 1.8 });
     }
   }
@@ -1651,15 +2249,15 @@ export class Sim {
       if (a.hp <= 0) {
         this.ev({ type: "explode", x: a.x, y: a.y, raceId: -1, size: a.radius * 0.9 });
         for (let k = 0; k < 3; k++) {
-          if (Math.random() < 0.12) {
-            this.spawnAnti(a.x + rand01() * 40 - 20, a.y + rand01() * 40 - 20, true);
+          if (this.rng.next() < 0.12) {
+            this.spawnAnti(a.x + this.rng.next() * 40 - 20, a.y + this.rng.next() * 40 - 20, true);
           } else {
             this.resources.push({
-              x: a.x + rand01() * 40 - 20,
-              y: a.y + rand01() * 40 - 20,
-              vx: rand01() * 80 - 40,
-              vy: rand01() * 80 - 40,
-              raceId: Math.floor(Math.random() * 4),
+              x: a.x + this.rng.next() * 40 - 20,
+              y: a.y + this.rng.next() * 40 - 20,
+              vx: this.rng.next() * 80 - 40,
+              vy: this.rng.next() * 80 - 40,
+              raceId: Math.floor(this.rng.next() * 4),
               amount: 2,
               radius: 10,
               phase: 0,
@@ -1685,7 +2283,7 @@ export class Sim {
           if (d < base.radius + 220 && base.energy > 5) {
             base.energy -= 12 * dt;
             this.damage(s, (34 + base.level * 3) * dt, null, true);
-            if (Math.random() < 0.2)
+            if (this.rng.next() < 0.2)
               this.ev({ type: "basehit", x: base.x, y: base.y, raceId: base.raceId });
           }
         } else if (d < base.radius) {
@@ -1732,7 +2330,7 @@ export class Sim {
         } else if (d < h.r * 2.6 && this.playerCmd.mineHold && s.isPlayer) {
           s.boost = Math.min(100, s.boost + 42 * dt);
           this.grantXp(s, 8 * dt);
-          if (Math.random() < dt * 3) this.ev({ type: "void", x: s.x, y: s.y, pitch: 0.5 });
+          if (this.rng.next() < dt * 3) this.ev({ type: "void", x: s.x, y: s.y, pitch: 0.5 });
         }
       }
     }
@@ -1805,6 +2403,123 @@ export class Sim {
           dps: 14 + st.lv * 6,
         });
         this.ev({ type: "gas", x: s.x, y: s.y, raceId: s.raceId });
+        break;
+      }
+      case "overcharge": {
+        st.cd = 15 - st.lv * 0.8;
+        s.overchargeT = 5 + st.lv * 0.4;
+        s.overheatT = 0;
+        this.ev({ type: "overcharge", x: s.x, y: s.y, raceId: s.raceId });
+        break;
+      }
+      case "cloak": {
+        st.cd = 13 - st.lv * 0.7;
+        s.cloakT = 2.5 + st.lv * 0.35;
+        s.cloakStrike = false;
+        s.invulnT = Math.max(s.invulnT, 0.15);
+        this.ev({ type: "cloak", x: s.x, y: s.y, raceId: s.raceId });
+        break;
+      }
+      case "emp": {
+        st.cd = 14 - st.lv * 0.8;
+        const rad = 280 + st.lv * 28;
+        const near = this.shipGrid.query(s.x, s.y, rad, this.qShip);
+        for (const o of near) {
+          if (!o.alive || o.raceId === s.raceId || o.invulnT > 0) continue;
+          const d = Math.hypot(o.x - s.x, o.y - s.y);
+          if (d < rad) {
+            const drain = o.maxShield * (0.45 + st.lv * 0.06);
+            o.shield = Math.max(0, o.shield - drain);
+            o.shieldDelay = 2.2;
+            o.stunT = Math.max(o.stunT, 0.7 + st.lv * 0.18);
+            o.slowT = Math.max(o.slowT, 1.6);
+            o.hitFlash = 1;
+            o.squashT = 0.18;
+          }
+        }
+        // also drain structures
+        for (const stt of this.structures) {
+          if (stt.raceId === s.raceId) continue;
+          if (Math.hypot(stt.x - s.x, stt.y - s.y) < rad) {
+            stt.shield = Math.max(0, stt.shield - stt.maxShield * 0.6);
+            stt.hp -= 26;
+          }
+        }
+        this.ev({ type: "emp", x: s.x, y: s.y, raceId: s.raceId, size: rad });
+        this.hitStop = Math.max(this.hitStop, 0.06);
+        this.shakeReq = Math.max(this.shakeReq, 9);
+        break;
+      }
+      case "nanite": {
+        st.cd = 16 - st.lv * 0.8;
+        const heal = s.maxHp * (0.28 + st.lv * 0.05);
+        s.hp = Math.min(s.maxHp, s.hp + heal);
+        s.shield = Math.min(this.effShieldMax(s), s.shield + s.maxShield * 0.2);
+        // dostları onar
+        const rad = 340 + st.lv * 24;
+        const near = this.shipGrid.query(s.x, s.y, rad, this.qShip);
+        for (const o of near) {
+          if (!o.alive || o.raceId !== s.raceId || o === s) continue;
+          const d = Math.hypot(o.x - s.x, o.y - s.y);
+          if (d < rad) {
+            o.hp = Math.min(o.maxHp, o.hp + heal * 0.5);
+            o.shield = Math.min(this.effShieldMax(o), o.shield + o.maxShield * 0.12);
+          }
+        }
+        this.ev({ type: "nanite", x: s.x, y: s.y, raceId: s.raceId });
+        break;
+      }
+      case "gravity": {
+        st.cd = 18 - st.lv * 0.9;
+        const rad = 180 + st.lv * 18;
+        const tr = 110 + st.lv * 18;
+        this.gravityWells.push({
+          x: s.x + Math.cos(s.angle) * 90,
+          y: s.y + Math.sin(s.angle) * 90,
+          r: 30,
+          targetR: tr,
+          life: 5 + st.lv * 0.6,
+          raceId: s.raceId,
+          ownerId: s.id,
+        });
+        // anlık çekim de uygula
+        const near = this.shipGrid.query(s.x, s.y, rad + 260, this.qShip);
+        for (const o of near) {
+          if (!o.alive || o.raceId === s.raceId) continue;
+          const d = Math.hypot(o.x - s.x, o.y - s.y);
+          if (d < rad + 200 && d > 10) {
+            const dx = s.x - o.x,
+              dy = s.y - o.y;
+            const pull = 420 / Math.max(40, d);
+            o.vx += (dx / d) * pull * 0.12;
+            o.vy += (dy / d) * pull * 0.12;
+            o.slowT = Math.max(o.slowT, 1.2);
+          }
+        }
+        this.ev({ type: "gravity", x: s.x, y: s.y, raceId: s.raceId });
+        break;
+      }
+      case "orbital": {
+        st.cd = 22 - st.lv * 1.0;
+        const tx = cmd.ax;
+        const ty = cmd.ay;
+        // clamp to within 900 of caster to prevent map-wide
+        const dx = tx - s.x,
+          dy = ty - s.y;
+        const d = Math.hypot(dx, dy);
+        const mx = d > 900 ? s.x + (dx / d) * 900 : tx;
+        const my = d > 900 ? s.y + (dy / d) * 900 : ty;
+        this.orbitalStrikes.push({
+          x: mx,
+          y: my,
+          r: 150 + st.lv * 12,
+          delay: 1.8,
+          life: 1.0,
+          dmg: 160 + st.lv * 32,
+          raceId: s.raceId,
+          ownerId: s.id,
+        });
+        this.ev({ type: "orbital", x: mx, y: my, raceId: s.raceId, size: 150 + st.lv * 12 });
         break;
       }
       default:
@@ -1930,7 +2645,7 @@ export class Sim {
       c.ay = base.y;
       c.boost = s.boost > 20;
       if (s.sys.trap.lv > 0 && s.sys.trap.cd <= 0) c.use = "trap";
-      if (s.sys.blink.lv > 0 && s.sys.blink.cd <= 0 && Math.random() < 0.02) {
+      if (s.sys.blink.lv > 0 && s.sys.blink.cd <= 0 && this.rng.next() < 0.02) {
         c.ax = base.x;
         c.ay = base.y;
         c.use = "blink";
@@ -1959,11 +2674,37 @@ export class Sim {
       const diff = Math.abs(angDiff(want, s.angle));
       if (diff < 0.22 && d < w.speed * w.life * 0.9) c.fire = true;
       if (s.sys.shield.lv > 0 && s.sys.shield.cd <= 0 && s.hp < s.maxHp * 0.55) c.use = "shield";
-      if (s.sys.gas.lv > 0 && s.sys.gas.cd <= 0 && d < 380 && Math.random() < 0.015) c.use = "gas";
-      if (s.sys.blink.lv > 0 && s.sys.blink.cd <= 0 && d > 640 && Math.random() < 0.012) {
+      if (s.sys.gas.lv > 0 && s.sys.gas.cd <= 0 && d < 380 && this.rng.next() < 0.015)
+        c.use = "gas";
+      if (s.sys.blink.lv > 0 && s.sys.blink.cd <= 0 && d > 640 && this.rng.next() < 0.012) {
         c.ax = enemy.x;
         c.ay = enemy.y;
         c.use = "blink";
+      }
+      if (s.sys.emp.lv > 0 && s.sys.emp.cd <= 0 && d < 340 && this.rng.next() < 0.018)
+        c.use = "emp";
+      if (
+        s.sys.cloak.lv > 0 &&
+        s.sys.cloak.cd <= 0 &&
+        s.hp < s.maxHp * 0.45 &&
+        this.rng.next() < 0.012
+      )
+        c.use = "cloak";
+      if (s.sys.overcharge.lv > 0 && s.sys.overcharge.cd <= 0 && this.rng.next() < 0.01)
+        c.use = "overcharge";
+      if (
+        s.sys.nanite.lv > 0 &&
+        s.sys.nanite.cd <= 0 &&
+        s.hp < s.maxHp * 0.42 &&
+        this.rng.next() < 0.016
+      )
+        c.use = "nanite";
+      if (s.sys.gravity.lv > 0 && s.sys.gravity.cd <= 0 && d < 420 && this.rng.next() < 0.01)
+        c.use = "gravity";
+      if (s.sys.orbital.lv > 0 && s.sys.orbital.cd <= 0 && d < 700 && this.rng.next() < 0.008) {
+        c.ax = enemy.x;
+        c.ay = enemy.y;
+        c.use = "orbital";
       }
       return c;
     }
@@ -2033,19 +2774,24 @@ export class Sim {
     for (const k of SYSTEM_ORDER) {
       const def = SYSTEMS[k];
       const st = p.sys[k];
+      const cdMap: Record<string, number> = {
+        shield: 18,
+        blink: 7,
+        trap: 11,
+        gas: 17,
+        overcharge: 15,
+        cloak: 13,
+        emp: 14,
+        nanite: 16,
+        gravity: 18,
+        orbital: 22,
+        mine: 0,
+        turbo: 0,
+      };
       sysHud[k] = {
         lv: st.lv,
         cd: Math.max(0, st.cd),
-        cdMax:
-          def.key === "shield"
-            ? 18
-            : def.key === "blink"
-              ? 7
-              : def.key === "trap"
-                ? 11
-                : def.key === "gas"
-                  ? 17
-                  : 1,
+        cdMax: cdMap[def.key] ?? 1,
         locked: p.level < def.unlockLv,
       };
     }
@@ -2076,7 +2822,7 @@ export class Sim {
       kills: p.kills,
       score: p.score,
       anti: p.anti,
-      roundLeft: Math.round(this.time),
+      roundLeft: Math.max(0, Math.ceil(this.session.t)),
       sys: sysHud,
       dead: !p.alive,
       deathInfo: this.deathInfo,
@@ -2106,6 +2852,30 @@ export class Sim {
       canBuild: base.alive && Math.hypot(p.x - base.x, p.y - base.y) < base.radius + 300,
       buildCost: 0,
       aliveTeams: board.map((b) => ({ name: b.name, color: b.color, alive: b.alive })),
+      comboN: p.comboN,
+      comboMul: p.comboMul,
+      crates: this.crates.map((c) => ({ x: c.x, y: c.y, type: c.type })),
+      boss: this.boss
+        ? {
+            x: this.boss.x,
+            y: this.boss.y,
+            hp: this.boss.hp,
+            maxHp: this.boss.maxHp,
+            alive: this.boss.alive,
+          }
+        : null,
+      bossWarning: this.bossWarning,
+      gates: this.gates.map((g) => ({ x: g.x, y: g.y, pairId: g.pairId })),
+      warpCd: p.warpCd,
+      cloakT: p.cloakT,
+      overchargeT: p.overchargeT,
+      overheatT: p.overheatT,
+      damageBuffT: p.damageBuffT,
+      speedBuffT: p.speedBuffT,
+      vacuumT: p.vacuumT,
+      xpBuffT: p.xpBuffT,
+      hitStop: this.hitStop,
+      roundElapsed: Math.floor(this.time),
     };
   }
 }

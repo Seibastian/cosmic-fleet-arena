@@ -130,7 +130,18 @@ export class Game {
     const k = e.key.toLowerCase();
     this.keys.add(k);
     if (k === " ") e.preventDefault();
-    const sysKeys: Record<string, SysKey> = { q: "shield", f: "blink", c: "trap", x: "gas" };
+    const sysKeys: Record<string, SysKey> = {
+      q: "shield",
+      f: "blink",
+      c: "trap",
+      x: "gas",
+      u: "overcharge",
+      g: "cloak",
+      z: "emp",
+      v: "nanite",
+      h: "gravity",
+      y: "orbital",
+    };
     if (this.sim.player.pendingBranch) {
       if (k === "1") {
         this.chooseBranch(0);
@@ -297,13 +308,13 @@ export class Game {
         kills: h.kills,
         won: h.ended.winner === this.sim.player.raceId,
         raceId: this.sim.player.raceId,
-        timeSurvived: h.roundLeft,
+        timeSurvived: h.roundElapsed,
       });
     }
   }
 
   get roundTime() {
-    return 0;
+    return this.sim.time;
   }
   get systemOrder() {
     return SYSTEM_ORDER;

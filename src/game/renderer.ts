@@ -144,6 +144,85 @@ export class Renderer {
       case "domination":
         this.ring(e.x ?? 0, e.y ?? 0, 260, "#ffcf4d");
         break;
+      case "shieldbreak":
+        this.ring(e.x!, e.y!, 44, "#8ec8ff");
+        this.sparks(e.x!, e.y!, 18, "#cfeaff");
+        this.explosion(e.x!, e.y!, 32, "#7ec8ff");
+        break;
+      case "emp":
+        for (let i = 0; i < 3; i++)
+          this.ring(e.x!, e.y!, (e.size ?? 280) * (0.35 + i * 0.32), "#7ec8ff");
+        this.sparks(e.x!, e.y!, 22, "#cfeaff");
+        for (let i = 0; i < 16; i++)
+          this.puff(e.x! + rand(-30, 30), e.y! + rand(-30, 30), "#8ec8ff");
+        break;
+      case "nanite":
+        for (let i = 0; i < 14; i++) {
+          const a = Math.random() * TAU;
+          const d = 18 + Math.random() * 44;
+          this.particles.push({
+            x: e.x! + Math.cos(a) * d,
+            y: e.y! + Math.sin(a) * d,
+            vx: -Math.cos(a) * 22,
+            vy: -Math.sin(a) * 22,
+            life: 0.7,
+            maxLife: 0.7,
+            r: 2.2,
+            color: "#7affb0",
+            kind: "spark",
+          });
+        }
+        this.ring(e.x!, e.y!, 42, "#7affb0");
+        break;
+      case "cloak":
+        this.ring(e.x!, e.y!, 36, "#9e7aff");
+        for (let i = 0; i < 12; i++)
+          this.puff(e.x! + rand(-18, 18), e.y! + rand(-18, 18), "#b8a0ff");
+        break;
+      case "gravity":
+        this.ring(e.x!, e.y!, 48, "#ff7a7a");
+        this.ring(e.x!, e.y!, 92, "#ff9a9a");
+        this.sparks(e.x!, e.y!, 12, "#ff7a7a");
+        break;
+      case "orbital":
+        this.ring(e.x!, e.y!, e.size ?? 150, "#ff5a3c");
+        this.ring(e.x!, e.y!, (e.size ?? 150) * 0.5, "#ffcf4d");
+        this.sparks(e.x!, e.y!, 16, "#ffcf7a");
+        break;
+      case "crate":
+        this.ring(e.x!, e.y!, 28, "#ffcf4d");
+        this.sparks(e.x!, e.y!, 10, "#ffec9a");
+        break;
+      case "bosshit":
+        this.sparks(e.x!, e.y!, 6, "#ff8a7a");
+        break;
+      case "bosskill":
+        this.explosion(e.x!, e.y!, e.size ?? 180, "#ff3b2a");
+        for (let i = 0; i < 4; i++) this.ring(e.x!, e.y!, 120 + i * 80, "#ff8a3c");
+        break;
+      case "warphop":
+        this.ring(e.x!, e.y!, 52, "#7ec8ff");
+        this.sparks(e.x!, e.y!, 10, "#cfeaff");
+        break;
+      case "combo":
+        if (e.text)
+          this.particles.push({
+            x: e.x!,
+            y: e.y! - 36,
+            vx: rand(-6, 6),
+            vy: -52,
+            life: 0.75,
+            maxLife: 0.75,
+            r: 16,
+            color: "#ffcf4d",
+            kind: "text",
+            text: e.text,
+          });
+        break;
+      case "overcharge":
+        this.ring(e.x!, e.y!, 30, "#ffd65a");
+        this.sparks(e.x!, e.y!, 10, "#ffec9a");
+        break;
       default:
         break;
     }
@@ -311,12 +390,16 @@ export class Renderer {
     this.drawZones(ctx, sim);
     this.drawHoles(ctx, sim);
     this.drawStars(ctx, sim);
+    this.drawGates(ctx, sim);
     this.drawBases(ctx, sim);
     this.drawStructures(ctx, sim);
     this.drawAsteroids(ctx, sim);
     this.drawResources(ctx, sim);
+    this.drawCrates(ctx, sim);
     this.drawGases(ctx, sim);
     this.drawTraps(ctx, sim);
+    this.drawGravityWells(ctx, sim);
+    this.drawOrbital(ctx, sim);
 
     ctx.save();
     ctx.globalCompositeOperation = "lighter";
@@ -326,6 +409,7 @@ export class Renderer {
     ctx.restore();
 
     this.drawShips(ctx, sim, dt);
+    this.drawBoss(ctx, sim);
     ctx.restore();
 
     if (this.settings.bloom && this.bloomCtx) this.applyBloom(ctx, W, H, dpr);
@@ -888,6 +972,299 @@ export class Renderer {
     }
   }
 
+  private drawGates(ctx: CanvasRenderingContext2D, sim: Sim) {
+    for (const g of sim.gates) {
+      if (!this.inView(g.x, g.y, g.radius + 60)) continue;
+      const pair = sim.gates.find((o) => o.id === g.pairId);
+      ctx.save();
+      ctx.translate(g.x, g.y);
+      // outer ring dashed
+      ctx.globalAlpha = 0.35 + Math.sin(this.time * 2 + g.id) * 0.15;
+      ctx.setLineDash([8, 8]);
+      ctx.strokeStyle = "#7ec8ff";
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.arc(0, 0, g.radius, 0, TAU);
+      ctx.stroke();
+      ctx.setLineDash([]);
+      // inner portal swirl
+      ctx.rotate(g.rot);
+      ctx.globalAlpha = 0.18;
+      ctx.fillStyle = "#7ec8ff";
+      ctx.beginPath();
+      ctx.arc(0, 0, g.radius * 0.62, 0, TAU);
+      ctx.fill();
+      ctx.globalAlpha = 0.45;
+      ctx.strokeStyle = "#cfeaff";
+      ctx.lineWidth = 2.5;
+      ctx.shadowColor = "#7ec8ff";
+      ctx.shadowBlur = 14;
+      for (let i = 0; i < 3; i++) {
+        ctx.rotate(TAU / 3);
+        ctx.beginPath();
+        ctx.arc(0, 0, g.radius * 0.5, 0, 1.2);
+        ctx.stroke();
+      }
+      // hexagonal rim ticks
+      ctx.shadowBlur = 0;
+      ctx.globalAlpha = 0.5;
+      ctx.fillStyle = "#cfeaff";
+      for (let i = 0; i < 6; i++) {
+        ctx.rotate(TAU / 6);
+        ctx.fillRect(g.radius - 2, -1.5, 8, 3);
+      }
+      // arrow to pair
+      if (pair) {
+        const ang = Math.atan2(pair.y - g.y, pair.x - g.x);
+        ctx.rotate(ang - g.rot);
+        ctx.globalAlpha = 0.7;
+        ctx.fillStyle = "#fff";
+        ctx.beginPath();
+        ctx.moveTo(g.radius + 14, 0);
+        ctx.lineTo(g.radius + 4, 5);
+        ctx.lineTo(g.radius + 4, -5);
+        ctx.closePath();
+        ctx.fill();
+      }
+      ctx.restore();
+      // label
+      ctx.save();
+      ctx.translate(g.x, g.y + g.radius + 14);
+      ctx.fillStyle = "rgba(126,200,255,.9)";
+      ctx.font = "600 10px Orbitron, monospace";
+      ctx.textAlign = "center";
+      ctx.fillText(`WARP ${g.id}→${g.pairId}`, 0, 0);
+      ctx.restore();
+    }
+  }
+
+  private drawCrates(ctx: CanvasRenderingContext2D, sim: Sim) {
+    const colMap: Record<string, string> = {
+      shield: "#7ec8ff",
+      damage: "#ff6b5a",
+      speed: "#ffd65a",
+      vacuum: "#9e7aff",
+      xp: "#7affb0",
+      antimatter: "#e0b0ff",
+    };
+    const iconMap: Record<string, string> = {
+      shield: "◈",
+      damage: "⬢",
+      speed: "⬣",
+      vacuum: "⬔",
+      xp: "⬙",
+      antimatter: "⬢",
+    };
+    for (const c of sim.crates) {
+      if (!this.inView(c.x, c.y, c.radius + 40)) continue;
+      const col = colMap[c.type] ?? "#ffcf4d";
+      const lifeFrac = clamp(c.life / 28, 0, 1);
+      ctx.save();
+      ctx.translate(c.x, c.y);
+      ctx.rotate(Math.sin(c.phase) * 0.12);
+      // life ring
+      ctx.globalAlpha = 0.35;
+      ctx.strokeStyle = col;
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.arc(0, 0, c.radius + 4, -Math.PI / 2, -Math.PI / 2 + TAU * lifeFrac);
+      ctx.stroke();
+      // box body
+      ctx.globalAlpha = 0.92;
+      ctx.fillStyle = col;
+      ctx.shadowColor = col;
+      ctx.shadowBlur = 12;
+      const s = 16;
+      ctx.fillRect(-s, -s, s * 2, s * 2);
+      ctx.shadowBlur = 0;
+      ctx.strokeStyle = "rgba(255,255,255,.85)";
+      ctx.lineWidth = 1.2;
+      ctx.strokeRect(-s, -s, s * 2, s * 2);
+      // inner bevel
+      ctx.fillStyle = "rgba(255,255,255,.22)";
+      ctx.fillRect(-s, -s, s * 2, 4);
+      ctx.fillRect(-s, -s, 4, s * 2);
+      // icon
+      ctx.fillStyle = "#0a1020";
+      ctx.font = "800 13px Orbitron, monospace";
+      ctx.textAlign = "center";
+      ctx.textBaseline = "middle";
+      ctx.fillText(iconMap[c.type] ?? "⬢", 0, 1);
+      ctx.restore();
+      // drift line
+      ctx.save();
+      ctx.globalAlpha = 0.22;
+      ctx.strokeStyle = col;
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.moveTo(c.x - c.vx * 0.25, c.y - c.vy * 0.25);
+      ctx.lineTo(c.x, c.y);
+      ctx.stroke();
+      ctx.restore();
+    }
+  }
+
+  private drawGravityWells(ctx: CanvasRenderingContext2D, sim: Sim) {
+    for (const g of sim.gravityWells) {
+      if (!this.inView(g.x, g.y, g.r + 80)) continue;
+      const fade = clamp(g.life / 2, 0, 1);
+      ctx.save();
+      ctx.translate(g.x, g.y);
+      ctx.globalAlpha = 0.16 * fade;
+      ctx.fillStyle = "#ff7a7a";
+      ctx.beginPath();
+      ctx.arc(0, 0, g.r, 0, TAU);
+      ctx.fill();
+      ctx.globalAlpha = 0.28 * fade;
+      ctx.strokeStyle = "#ff9a9a";
+      ctx.lineWidth = 1.6;
+      ctx.setLineDash([6, 8]);
+      ctx.beginPath();
+      ctx.arc(0, 0, g.r, 0, TAU);
+      ctx.stroke();
+      ctx.setLineDash([]);
+      // swirl ticks
+      ctx.rotate(this.time * 1.2);
+      ctx.globalAlpha = 0.45 * fade;
+      ctx.strokeStyle = "#ffcfcf";
+      ctx.lineWidth = 1.2;
+      for (let i = 0; i < 4; i++) {
+        ctx.rotate(TAU / 4);
+        ctx.beginPath();
+        ctx.arc(0, 0, g.r * 0.72, 0, 0.9);
+        ctx.stroke();
+      }
+      // core
+      ctx.globalAlpha = 0.7 * fade;
+      ctx.fillStyle = "#ff4a4a";
+      ctx.shadowColor = "#ff7a7a";
+      ctx.shadowBlur = 14;
+      ctx.beginPath();
+      ctx.arc(0, 0, 10, 0, TAU);
+      ctx.fill();
+      ctx.restore();
+    }
+  }
+
+  private drawOrbital(ctx: CanvasRenderingContext2D, sim: Sim) {
+    for (const o of sim.orbitalStrikes) {
+      if (!this.inView(o.x, o.y, o.r + 80)) continue;
+      ctx.save();
+      ctx.translate(o.x, o.y);
+      if (o.delay > 0) {
+        // targeting laser down
+        const t = 1 - o.delay / 1.8;
+        ctx.globalAlpha = 0.25 + t * 0.35;
+        ctx.fillStyle = "#ff5a3c";
+        ctx.fillRect(-o.r, -2400, o.r * 2, 4800);
+        ctx.globalAlpha = 0.6;
+        ctx.strokeStyle = "#ffcf4d";
+        ctx.lineWidth = 2;
+        ctx.setLineDash([10, 10]);
+        ctx.beginPath();
+        ctx.arc(0, 0, o.r, 0, TAU);
+        ctx.stroke();
+        ctx.setLineDash([]);
+        // countdown ticks
+        ctx.fillStyle = "#fff";
+        ctx.font = "800 14px Orbitron, monospace";
+        ctx.textAlign = "center";
+        ctx.fillText((o.delay + 0.05).toFixed(1), 0, -o.r - 10);
+      } else {
+        const fade = clamp(o.life / 0.35, 0, 1);
+        ctx.globalAlpha = 0.42 * fade;
+        ctx.fillStyle = "#ff5a3c";
+        ctx.beginPath();
+        ctx.arc(0, 0, o.r, 0, TAU);
+        ctx.fill();
+        ctx.globalAlpha = 0.7 * fade;
+        ctx.strokeStyle = "#ffcf4d";
+        ctx.lineWidth = 3;
+        ctx.beginPath();
+        ctx.arc(0, 0, o.r * (1 - fade * 0.2), 0, TAU);
+        ctx.stroke();
+      }
+      ctx.restore();
+    }
+  }
+
+  private drawBoss(ctx: CanvasRenderingContext2D, sim: Sim) {
+    const b = sim.boss;
+    if (!b || !b.alive || !this.inView(b.x, b.y, b.radius + 80)) return;
+    ctx.save();
+    ctx.translate(b.x, b.y);
+    ctx.rotate(b.angle);
+    // shadow
+    ctx.globalAlpha = 0.18;
+    ctx.fillStyle = "#000";
+    ctx.beginPath();
+    ctx.arc(0, 0, b.radius * 1.3, 0, TAU);
+    ctx.fill();
+    // body: spiky leviathan
+    ctx.globalAlpha = 1;
+    ctx.shadowColor = "#ff3b2a";
+    ctx.shadowBlur = 22;
+    ctx.fillStyle = "#2a0e0e";
+    ctx.strokeStyle = "#ff5a3c";
+    ctx.lineWidth = 2.2;
+    ctx.beginPath();
+    const r = b.radius;
+    for (let i = 0; i < 12; i++) {
+      const ang = (TAU * i) / 12;
+      const rr = r * (0.88 + 0.18 * Math.sin(i * 0.8 + this.time * 1.1));
+      const x = Math.cos(ang) * rr;
+      const y = Math.sin(ang) * rr;
+      if (i === 0) ctx.moveTo(x, y);
+      else ctx.lineTo(x, y);
+    }
+    ctx.closePath();
+    ctx.fill();
+    ctx.stroke();
+    ctx.shadowBlur = 0;
+    // inner core
+    ctx.fillStyle = "#ff2a2a";
+    ctx.globalAlpha = 0.85 + Math.sin(this.time * 4) * 0.12;
+    ctx.beginPath();
+    ctx.arc(0, 0, r * 0.42, 0, TAU);
+    ctx.fill();
+    ctx.fillStyle = "#fff";
+    ctx.globalAlpha = 0.9;
+    ctx.beginPath();
+    ctx.arc(r * 0.18, -r * 0.1, r * 0.14, 0, TAU);
+    ctx.fill();
+    // eyes
+    for (let k = -1; k <= 1; k += 2) {
+      ctx.save();
+      ctx.translate(r * 0.28, k * r * 0.22);
+      ctx.fillStyle = "#ffcf4d";
+      ctx.shadowColor = "#ffcf4d";
+      ctx.shadowBlur = 10;
+      ctx.beginPath();
+      ctx.arc(0, 0, 6, 0, TAU);
+      ctx.fill();
+      ctx.fillStyle = "#000";
+      ctx.beginPath();
+      ctx.arc(1, 0, 2.5, 0, TAU);
+      ctx.fill();
+      ctx.restore();
+    }
+    ctx.restore();
+    // hp bar
+    ctx.save();
+    ctx.translate(b.x, b.y - r - 18);
+    const w = 110;
+    const hpFrac = clamp(b.hp / b.maxHp, 0, 1);
+    ctx.fillStyle = "rgba(0,0,0,.55)";
+    ctx.fillRect(-w / 2 - 2, -6, w + 4, 12);
+    ctx.fillStyle = hpFrac > 0.45 ? "#ff4a4a" : hpFrac > 0.2 ? "#ffcf4d" : "#ff8a4a";
+    ctx.fillRect(-w / 2, -4, w * hpFrac, 8);
+    ctx.fillStyle = "rgba(255,255,255,.9)";
+    ctx.font = "700 9px Orbitron, monospace";
+    ctx.textAlign = "center";
+    ctx.fillText(`LEVIATHAN ${Math.ceil(b.hp)}`, 0, -12);
+    ctx.restore();
+  }
+
   private drawGases(ctx: CanvasRenderingContext2D, sim: Sim) {
     for (const g of sim.gases) {
       if (!this.inView(g.x, g.y, g.r + 60)) continue;
@@ -1044,8 +1421,18 @@ export class Renderer {
     for (const s of sim.ships) {
       if (!s.alive || !this.inView(s.x, s.y, s.radius * 4 + 60)) continue;
       const rc = this.pal[s.raceId]!;
+      // cloak: low alpha, but player sees own cloak semi, enemies almost invisible
+      const cloaked = s.cloakT > 0;
+      const cloakAlpha = cloaked ? (s.isPlayer ? 0.45 : 0.16) : 1;
       ctx.save();
       ctx.translate(s.x, s.y);
+      if (s.squashT > 0) {
+        const k = s.squashT / 0.14;
+        const sx = 1 + k * 0.22;
+        const sy = 1 - k * 0.18;
+        ctx.scale(sx, sy);
+      }
+      if (cloaked) ctx.globalAlpha *= cloakAlpha;
 
       if (s.invulnT > 0) {
         const k = clamp(s.invulnT / 1.2, 0, 1);
@@ -1115,6 +1502,75 @@ export class Renderer {
           ctx.lineTo(Math.cos(a) * s.radius * 1.9, Math.sin(a) * s.radius * 1.9);
         }
         ctx.stroke();
+        ctx.restore();
+      }
+      // buff auras
+      if (s.damageBuffT > 0) {
+        ctx.save();
+        ctx.globalAlpha = 0.22 + Math.sin(this.time * 8) * 0.1;
+        ctx.strokeStyle = "#ff6b5a";
+        ctx.lineWidth = 2;
+        ctx.shadowColor = "#ff6b5a";
+        ctx.shadowBlur = 12;
+        ctx.beginPath();
+        ctx.arc(0, 0, s.radius * 1.75, 0, TAU);
+        ctx.stroke();
+        ctx.restore();
+      }
+      if (s.speedBuffT > 0) {
+        ctx.save();
+        ctx.globalAlpha = 0.2 + Math.sin(this.time * 7) * 0.08;
+        ctx.strokeStyle = "#ffd65a";
+        ctx.lineWidth = 2;
+        ctx.shadowColor = "#ffd65a";
+        ctx.shadowBlur = 12;
+        ctx.beginPath();
+        ctx.arc(0, 0, s.radius * 1.65, 0, TAU);
+        ctx.stroke();
+        ctx.restore();
+      }
+      if (s.overchargeT > 0) {
+        ctx.save();
+        ctx.globalAlpha = 0.28 + Math.sin(this.time * 12) * 0.12;
+        ctx.strokeStyle = "#ffcf4d";
+        ctx.lineWidth = 2.5;
+        ctx.shadowColor = "#ffcf4d";
+        ctx.shadowBlur = 16;
+        ctx.beginPath();
+        ctx.arc(0, 0, s.radius * 1.85, 0, TAU);
+        ctx.stroke();
+        // electric ticks
+        ctx.globalAlpha = 0.55;
+        ctx.lineWidth = 1.2;
+        for (let i = 0; i < 2; i++) {
+          const a = this.time * 14 + i * Math.PI;
+          ctx.beginPath();
+          ctx.moveTo(Math.cos(a) * s.radius * 1.2, Math.sin(a) * s.radius * 1.2);
+          ctx.lineTo(Math.cos(a) * s.radius * 1.55, Math.sin(a) * s.radius * 1.55);
+          ctx.stroke();
+        }
+        ctx.restore();
+      }
+      if (s.cloakT > 0) {
+        ctx.save();
+        ctx.globalAlpha = 0.35;
+        ctx.strokeStyle = "#9e7aff";
+        ctx.lineWidth = 1.6;
+        ctx.setLineDash([4, 6]);
+        ctx.lineDashOffset = -this.time * 22;
+        ctx.beginPath();
+        ctx.arc(0, 0, s.radius * 2.1, 0, TAU);
+        ctx.stroke();
+        ctx.setLineDash([]);
+        ctx.restore();
+      }
+      if (s.overheatT > 0) {
+        ctx.save();
+        ctx.globalAlpha = 0.35;
+        ctx.fillStyle = "#ff3b2a";
+        ctx.beginPath();
+        ctx.arc(0, 0, s.radius * 0.5, 0, TAU);
+        ctx.fill();
         ctx.restore();
       }
 
@@ -1279,13 +1735,73 @@ export class Renderer {
       c.fillStyle = r.anti ? "#e0c3ff" : (this.pal[r.raceId]?.color ?? "#fff");
       c.fillRect(r.x * k, r.y * k, 1.4, 1.4);
     }
+    // crates
+    for (const cr of sim.crates) {
+      const cm: Record<string, string> = {
+        shield: "#7ec8ff",
+        damage: "#ff6b5a",
+        speed: "#ffd65a",
+        vacuum: "#9e7aff",
+        xp: "#7affb0",
+        antimatter: "#e0b0ff",
+      };
+      c.fillStyle = cm[cr.type] ?? "#ffcf4d";
+      c.fillRect(cr.x * k - 2, cr.y * k - 2, 4, 4);
+      c.strokeStyle = "#fff";
+      c.lineWidth = 0.7;
+      c.strokeRect(cr.x * k - 2, cr.y * k - 2, 4, 4);
+    }
+    // gates
+    for (const g of sim.gates) {
+      c.fillStyle = "#7ec8ff";
+      c.globalAlpha = 0.65;
+      c.beginPath();
+      c.arc(g.x * k, g.y * k, 3.5, 0, TAU);
+      c.fill();
+      c.globalAlpha = 1;
+      c.strokeStyle = "#cfeaff";
+      c.lineWidth = 0.9;
+      c.stroke();
+    }
+    // boss
+    if (sim.boss && sim.boss.alive) {
+      c.fillStyle = "#ff3b2a";
+      c.globalAlpha = 0.9;
+      c.beginPath();
+      c.arc(sim.boss.x * k, sim.boss.y * k, 5, 0, TAU);
+      c.fill();
+      c.fillStyle = "#fff";
+      c.font = "6px Orbitron";
+      c.fillText("BOSS", sim.boss.x * k + 6, sim.boss.y * k + 2);
+      c.globalAlpha = 1;
+    }
+    // orbital markers
+    for (const o of sim.orbitalStrikes) {
+      if (o.delay > 0) {
+        c.strokeStyle = "#ff5a3c";
+        c.lineWidth = 1;
+        c.setLineDash([2, 2]);
+        c.beginPath();
+        c.arc(o.x * k, o.y * k, o.r * k, 0, TAU);
+        c.stroke();
+        c.setLineDash([]);
+      }
+    }
     c.globalAlpha = 1;
     for (const s of sim.ships) {
       if (!s.alive) continue;
+      if (s.cloakT > 0 && !s.isPlayer) continue; // hide cloaked enemies on minimap
       c.fillStyle = s.isPlayer ? "#ffffff" : this.pal[s.raceId]!.color;
       c.beginPath();
       c.arc(s.x * k, s.y * k, s.isPlayer ? 3.2 : 1.7, 0, TAU);
       c.fill();
+      if (s.overchargeT > 0) {
+        c.strokeStyle = "#ffcf4d";
+        c.lineWidth = 0.8;
+        c.beginPath();
+        c.arc(s.x * k, s.y * k, 3.8, 0, TAU);
+        c.stroke();
+      }
     }
     const vw = (this.canvas.clientWidth / this.camera.zoom) * k;
     const vh = (this.canvas.clientHeight / this.camera.zoom) * k;

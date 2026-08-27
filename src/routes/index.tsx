@@ -30,13 +30,13 @@ export const Route = createFileRoute("/")({
       {
         name: "description",
         content:
-          "CosmoWar Arena: dallanan gemi ağacı, 12 sistem modülü, yükseltilebilir üsler ve oturum tabanlı uzay savaşları.",
+          "CosmoWar Arena ULTIMATE: 12 sistem, warp kapıları, ikmal kasaları, Leviathan boss, kombo zinciri, hit-stop ve hakimiyet savaşı.",
       },
-      { property: "og:title", content: "CosmoWar Arena — Dört Irk, Tek Galaksi" },
+      { property: "og:title", content: "CosmoWar Arena ULTIMATE — Dört Irk, Tek Galaksi" },
       {
         property: "og:description",
         content:
-          "Atalet fizikli tarayıcı uzay arenası: 4 ırk, dallanan ağaçta 600+ gemi yolu, oturum savaşı.",
+          "Ultimate uzay arenası: 4 ırk · 12 sistem · warp · ikmal · boss · 600+ gemi yolu · 60 FPS juice.",
       },
       { property: "og:type", content: "website" },
       { name: "twitter:card", content: "summary_large_image" },
@@ -306,19 +306,20 @@ function MenuScreen({
             <b className="text-foreground">Fare</b> nişan ·{" "}
             <b className="text-foreground">Sol tık</b> ateş ·{" "}
             <b className="text-foreground">Sağ tık/W</b> itki · <b className="text-foreground">E</b>{" "}
-            maden ışını
+            maden ışını · <b className="text-foreground">Shift/Space</b> boost
           </p>
           <p>
-            <b className="text-foreground">Q/F/C/X</b> sistemler ·{" "}
-            <b className="text-foreground">R</b> kalkan delici ·{" "}
-            <b className="text-foreground">B+1/2/3</b> üs savunması inşa et
+            <b className="text-foreground">Q/F/U/G/Z/V/H/Y/X/C</b> 12 sistem ·{" "}
+            <b className="text-foreground">R</b> delici · <b className="text-foreground">B+1/2/3</b>{" "}
+            üs savunması
           </p>
           <p>
-            Güneşten ☀ · karadeliklerden ◉ · yıldız bölgelerinden ◆ hammadde topla, üsse teslim et
+            ☀ solar · ◉ dark · ◆ stellar topla · <b className="text-gold">⬢ ikmal kasaları</b> ·{" "}
+            <b className="text-air">⟁ warp</b> kapıları · <b className="text-fire">☠ Leviathan</b>
           </p>
           <p>
-            <b className="text-gold">Zafer:</b> tüm düşman üslerini yok edip hakimiyet kur — kendi
-            üssünü duvar, kalkan ve kalelerle koru
+            <b className="text-gold">Zafer:</b> hakimiyet (üsleri yok et) veya süre sonunda en
+            yüksek skor — 12dk &lt;720s&gt;
           </p>
         </div>
 
@@ -400,41 +401,59 @@ function UpgradePanel({
             </button>
           </div>
         ))}
-      {tab === "sys" &&
-        SYSTEM_ORDER.map((key) => {
-          const def = SYSTEMS[key];
-          const st = hud.sys[key];
-          const maxed = st.lv >= def.maxLv;
-          return (
-            <div key={key} className="mb-1.5 rounded border border-border/60 p-2">
-              <div className="flex items-center justify-between gap-2">
-                <div className="min-w-0">
-                  <div className="truncate text-xs font-semibold">
-                    {def.name}
-                    <b className="ml-1.5 text-gold">{st.lv > 0 ? ROMAN[st.lv - 1] : ""}</b>
-                    <b className="ml-1.5 text-[10px] font-normal text-muted-foreground">
-                      [{def.hotkey}]
-                    </b>
+      {tab === "sys" && (
+        <div className="max-h-[320px] overflow-y-auto pr-1 scrollbar-thin">
+          {SYSTEM_ORDER.map((key) => {
+            const def = SYSTEMS[key];
+            const st = hud.sys[key];
+            const maxed = st.lv >= def.maxLv;
+            const needAnti = st.lv > 0 ? st.lv : 0;
+            const canAfford = st.lv === 0 ? true : hud.anti >= needAnti && hud.upPoints > 0;
+            return (
+              <div key={key} className="mb-1 rounded border border-border/60 p-1.5">
+                <div className="flex items-center justify-between gap-2">
+                  <div className="min-w-0 flex-1">
+                    <div className="truncate text-[11px] font-semibold">
+                      {def.name}
+                      <b className="ml-1 text-gold">{st.lv > 0 ? ROMAN[st.lv - 1] : ""}</b>
+                      <b className="ml-1 text-[9px] font-normal text-muted-foreground">
+                        [{def.hotkey}]
+                      </b>
+                    </div>
+                    <div className="truncate text-[9px] leading-tight text-muted-foreground">
+                      {st.locked
+                        ? `Kilitli · seviye ${def.unlockLv}`
+                        : st.lv > 0
+                          ? def.lvlDesc(st.lv)
+                          : def.desc}
+                    </div>
+                    {st.lv > 0 && !maxed && (
+                      <div className="text-[9px] text-muted-foreground">
+                        Sonraki: 1 puan + {needAnti} antimadde
+                      </div>
+                    )}
                   </div>
-                  <div className="truncate text-[10px] text-muted-foreground">
-                    {st.locked
-                      ? `Kilitli · seviye ${def.unlockLv}`
-                      : st.lv > 0
-                        ? def.lvlDesc(st.lv)
-                        : def.desc}
-                  </div>
+                  <button
+                    onClick={() => onSystem(key)}
+                    disabled={st.locked || maxed || !canAfford}
+                    className="h-6 shrink-0 rounded border border-border bg-secondary px-2 text-[10px] leading-none transition-colors hover:border-gold hover:text-gold disabled:opacity-35"
+                  >
+                    {st.lv === 0 ? "Aç" : maxed ? "MAX" : `Lv ${ROMAN[st.lv]}`}
+                  </button>
                 </div>
-                <button
-                  onClick={() => onSystem(key)}
-                  disabled={st.locked || maxed || hud.upPoints <= 0}
-                  className="h-6 shrink-0 rounded border border-border bg-secondary px-2 text-[11px] leading-none transition-colors hover:border-gold hover:text-gold disabled:opacity-35"
-                >
-                  {st.lv === 0 ? "Aç" : maxed ? "MAX" : `Lv ${ROMAN[st.lv]}`}
-                </button>
+                {st.lv > 0 && (
+                  <div className="mt-1 h-1 overflow-hidden rounded bg-secondary">
+                    <div
+                      className="h-full bg-gold transition-all"
+                      style={{ width: `${(st.lv / def.maxLv) * 100}%` }}
+                    />
+                  </div>
+                )}
               </div>
-            </div>
-          );
-        })}
+            );
+          })}
+        </div>
+      )}
       {tab === "base" && (
         <>
           <button
@@ -527,25 +546,28 @@ function TabBtn({
 }
 
 function SystemBar({ hud }: { hud: HudState }) {
+  const activeKeys = SYSTEM_ORDER.filter((k) => k !== "mine" && k !== "turbo");
   return (
-    <div className="pointer-events-none absolute bottom-20 left-1/2 flex -translate-x-1/2 gap-2">
-      {SYSTEM_ORDER.filter((k) => k !== "mine" && k !== "turbo").map((k) => {
+    <div className="pointer-events-none absolute bottom-20 left-1/2 flex max-w-[420px] -translate-x-1/2 flex-wrap justify-center gap-1.5">
+      {activeKeys.map((k) => {
         const st = hud.sys[k];
         const cdFrac = st.cdMax > 1 ? st.cd / st.cdMax : 0;
+        const isOverheated =
+          k === "overcharge" && (hud as unknown as { overheatT?: number }).overheatT && false; // reserved
         return (
           <div
             key={k}
-            className={`hud-panel relative h-11 w-11 overflow-hidden text-center ${st.locked ? "opacity-30" : ""}`}
+            className={`hud-panel relative h-10 w-10 overflow-hidden text-center ${st.locked ? "opacity-30" : ""} ${isOverheated ? "border-fire" : ""}`}
             title={`${SYSTEMS[k]!.name} [${SYSTEMS[k]!.hotkey}]`}
           >
             <div
-              className="absolute inset-x-0 bottom-0 bg-primary/25"
+              className={`absolute inset-x-0 bottom-0 ${isOverheated ? "bg-fire/40" : "bg-primary/25"}`}
               style={{ height: `${cdFrac * 100}%` }}
             />
-            <div className="relative pt-1.5 text-sm font-bold leading-none">
+            <div className="relative pt-1 text-xs font-bold leading-none">
               {SYSTEMS[k]!.hotkey.replace(" (basılı)", "").replace(" (pasif)", "")}
             </div>
-            <div className="relative text-[9px] leading-tight text-muted-foreground">
+            <div className="relative text-[8px] leading-tight text-muted-foreground">
               {st.locked ? "—" : ROMAN[Math.max(0, st.lv - 1)]}
             </div>
           </div>
@@ -608,7 +630,9 @@ function EndOverlay({
       ? "HAKİMİYET SAĞLANDI"
       : end.reason === "eliminated"
         ? "ÜSSÜN YIKILDI"
-        : "OTURUM BİTTİ";
+        : end.reason === "time"
+          ? "SÜRE DOLDU"
+          : "OTURUM BİTTİ";
   return (
     <div className="absolute inset-0 z-30 flex items-center justify-center bg-background/88 backdrop-blur-sm">
       <div className="w-full max-w-xl px-6 text-center">
@@ -910,7 +934,112 @@ function GameView({
                 <span>Turbo (Shift)</span>
                 <span>{Math.round(hud.boost)}%</span>
               </div>
+              {/* buff infoları */}
+              {(hud.damageBuffT > 0 ||
+                hud.speedBuffT > 0 ||
+                hud.cloakT > 0 ||
+                hud.overchargeT > 0) && (
+                <div className="mt-1.5 flex flex-wrap gap-1 text-[9px] font-bold">
+                  {hud.damageBuffT > 0 && (
+                    <span className="rounded bg-fire/20 px-1.5 py-0.5 text-fire">
+                      ⬢ HASAR {hud.damageBuffT.toFixed(1)}s
+                    </span>
+                  )}
+                  {hud.speedBuffT > 0 && (
+                    <span className="rounded bg-gold/20 px-1.5 py-0.5 text-gold">
+                      ⬣ HIZ {hud.speedBuffT.toFixed(1)}s
+                    </span>
+                  )}
+                  {hud.cloakT > 0 && (
+                    <span className="rounded bg-[#9e7aff]/20 px-1.5 py-0.5 text-[#9e7aff]">
+                      ◈ FAZ {hud.cloakT.toFixed(1)}s
+                    </span>
+                  )}
+                  {hud.overchargeT > 0 && (
+                    <span className="rounded bg-gold/25 px-1.5 py-0.5 text-gold animate-pulse">
+                      ⚡ AŞIRI {hud.overchargeT.toFixed(1)}s
+                    </span>
+                  )}
+                  {hud.vacuumT > 0 && (
+                    <span className="rounded bg-[#9e7aff]/20 px-1.5 py-0.5 text-[#b8a0ff]">
+                      ⬔ VAKUM {hud.vacuumT.toFixed(1)}s
+                    </span>
+                  )}
+                  {hud.xpBuffT > 0 && (
+                    <span className="rounded bg-[#7affb0]/20 px-1.5 py-0.5 text-[#7affb0]">
+                      ⬙ XP×2 {hud.xpBuffT.toFixed(1)}s
+                    </span>
+                  )}
+                </div>
+              )}
+              {hud.warpCd > 0 && (
+                <div className="mt-1 text-[9px] text-air">
+                  ⟁ Warp bekleme {hud.warpCd.toFixed(1)}s
+                </div>
+              )}
             </div>
+          </div>
+
+          {/* kombo rozeti — Nihai juice */}
+          {hud.comboN >= 3 && (
+            <div className="pointer-events-none absolute left-1/2 top-[18%] z-10 -translate-x-1/2 text-center">
+              <div
+                className={`font-display text-2xl font-black tracking-widest drop-shadow-[0_0_16px_rgba(255,207,77,.7)] ${
+                  hud.comboN >= 10 ? "text-gold" : hud.comboN >= 5 ? "text-[#ffd76a]" : "text-white"
+                } ${hud.comboN >= 10 ? "animate-pulse" : ""}`}
+                style={{
+                  transform: `scale(${1 + Math.min(0.35, hud.comboN * 0.02)})`,
+                  textShadow:
+                    hud.comboN >= 10 ? "0 0 22px rgba(255,207,77,.9)" : "0 0 10px rgba(0,0,0,.8)",
+                }}
+              >
+                KOMBO ×{hud.comboN}{" "}
+                <span className="text-sm text-gold/90">×{hud.comboMul.toFixed(2)}</span>
+              </div>
+              <div className="mx-auto mt-1 h-1 w-24 overflow-hidden rounded bg-secondary/60">
+                <div
+                  className="h-full bg-gold transition-all duration-100"
+                  style={{ width: `${Math.min(100, (hud.comboN / 20) * 100)}%` }}
+                />
+              </div>
+            </div>
+          )}
+
+          {/* boss uyarı / sağlık */}
+          {hud.bossWarning > 0 && (
+            <div className="pointer-events-none absolute left-1/2 top-20 z-10 -translate-x-1/2 rounded border border-fire/60 bg-fire/15 px-4 py-2 text-center backdrop-blur">
+              <div className="animate-pulse font-display text-sm font-black text-fire">
+                ⚠ LEVIATHAN YAKLAŞIYOR {hud.bossWarning.toFixed(1)}s
+              </div>
+              <div className="text-[10px] text-fire/80">Merkeze yakın dur — kaç veya savaş!</div>
+            </div>
+          )}
+          {hud.boss && (
+            <div className="pointer-events-none absolute left-1/2 top-[68px] z-10 w-[260px] -translate-x-1/2">
+              <div className="h-2 overflow-hidden rounded border border-fire/60 bg-background/70">
+                <div
+                  className="h-full bg-gradient-to-r from-fire to-gold transition-all duration-200"
+                  style={{ width: `${(hud.boss.hp / hud.boss.maxHp) * 100}%` }}
+                />
+              </div>
+              <div className="mt-0.5 text-center text-[9px] font-bold tracking-widest text-fire">
+                ☠ LEVIATHAN — {Math.ceil(hud.boss.hp)} / {hud.boss.maxHp}
+              </div>
+            </div>
+          )}
+
+          {/* ikmal & warp bilgi şeridi */}
+          <div className="pointer-events-none absolute left-1/2 top-[112px] z-10 flex -translate-x-1/2 gap-2">
+            {hud.crates.length > 0 && (
+              <div className="rounded bg-gold/15 px-2 py-1 text-[10px] font-semibold text-gold backdrop-blur">
+                ⬢ Kasalar {hud.crates.length} haritada
+              </div>
+            )}
+            {hud.gates.length > 0 && (
+              <div className="rounded bg-air/15 px-2 py-1 text-[10px] font-semibold text-air backdrop-blur">
+                ⟁ Warp aktif · {hud.gates.length} kapı
+              </div>
+            )}
           </div>
 
           {/* üst orta: üs + hakimiyet */}

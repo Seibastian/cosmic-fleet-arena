@@ -101,7 +101,18 @@ export interface GameEvent {
     | "defensehit"
     | "solarmine"
     | "darkmine"
-    | "collect";
+    | "collect"
+    | "emp"
+    | "nanite"
+    | "cloak"
+    | "gravity"
+    | "orbital"
+    | "overcharge"
+    | "crate"
+    | "bosshit"
+    | "bosskill"
+    | "warphop"
+    | "combo";
   x?: number;
   y?: number;
   raceId?: number;

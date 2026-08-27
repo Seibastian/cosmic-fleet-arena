@@ -1,6 +1,18 @@
-/* CosmoWar Arena — gemi içi sistem modülleri (12'den ilk 6) */
+/* CosmoWar Arena — gemi içi sistem modülleri (12 sistem) */
 
-export type SysKey = "mine" | "shield" | "turbo" | "blink" | "trap" | "gas";
+export type SysKey =
+  | "mine"
+  | "shield"
+  | "turbo"
+  | "blink"
+  | "trap"
+  | "gas"
+  | "emp"
+  | "nanite"
+  | "cloak"
+  | "gravity"
+  | "orbital"
+  | "overcharge";
 
 export interface SystemDef {
   key: SysKey;
@@ -12,7 +24,20 @@ export interface SystemDef {
   lvlDesc: (lv: number) => string;
 }
 
-export const SYSTEM_ORDER: SysKey[] = ["mine", "shield", "turbo", "blink", "trap", "gas"];
+export const SYSTEM_ORDER: SysKey[] = [
+  "mine",
+  "shield",
+  "turbo",
+  "blink",
+  "trap",
+  "gas",
+  "overcharge",
+  "cloak",
+  "emp",
+  "nanite",
+  "gravity",
+  "orbital",
+];
 
 export const SYSTEMS: Record<SysKey, SystemDef> = {
   mine: {
@@ -55,6 +80,15 @@ export const SYSTEMS: Record<SysKey, SystemDef> = {
     desc: "Nişan noktaya doğru kısa mesafe ışınlanma; saniyelerce dokunulmazlık.",
     lvlDesc: (lv) => `mesafe ${260 + lv * 70} · bekleme ${(7 - lv * 0.8).toFixed(1)}s`,
   },
+  overcharge: {
+    key: "overcharge",
+    name: "Aşırı Yük",
+    hotkey: "U",
+    unlockLv: 11,
+    maxLv: 5,
+    desc: "6sn boyunca silahlar %45 hızlı, %25 güçlü — sonra 3sn aşırı ısınma.",
+    lvlDesc: (lv) => `ateş +${25 + lv * 4}% · hasar +${15 + lv * 3}% · süre ${5 + lv * 0.4}s`,
+  },
   trap: {
     key: "trap",
     name: "Uzay Tuzağı",
@@ -64,6 +98,15 @@ export const SYSTEMS: Record<SysKey, SystemDef> = {
     desc: "Geriye ırk temalı tuzak bırakır; düşman temasında tetiklenir.",
     lvlDesc: (lv) => `hasar ${60 + lv * 30} · ömür ${18 + lv * 4}s · yarıçap ${70 + lv * 14}`,
   },
+  cloak: {
+    key: "cloak",
+    name: "Faz Pelerini",
+    hotkey: "G",
+    unlockLv: 15,
+    maxLv: 5,
+    desc: "Görünmezlik + %40 hız — ilk atış %45 bonus hasar.",
+    lvlDesc: (lv) => `görünmez ${2.5 + lv * 0.35}s · hız +${30 + lv * 4}% · bonus %${35 + lv * 5}`,
+  },
   gas: {
     key: "gas",
     name: "Gaz Fırtınası",
@@ -72,5 +115,43 @@ export const SYSTEMS: Record<SysKey, SystemDef> = {
     maxLv: 5,
     desc: "Zamanla hasar veren, yavaşlatan bulut yayılır; düşman sensörlerini kör eder.",
     lvlDesc: (lv) => `saniye ${14 + lv * 6} hasar · yarıçap ${110 + lv * 26} · süre ${5 + lv}s`,
+  },
+  emp: {
+    key: "emp",
+    name: "EMP Darbe",
+    hotkey: "Z",
+    unlockLv: 19,
+    maxLv: 5,
+    desc: "Şok dalgası: kalkanları söndürür, kısa sersemletme + yavaşlatma.",
+    lvlDesc: (lv) =>
+      `yarıçap ${280 + lv * 28} · sersem ${0.7 + lv * 0.18}s · kalkan -%${45 + lv * 6}`,
+  },
+  nanite: {
+    key: "nanite",
+    name: "Nanit Sürüsü",
+    hotkey: "V",
+    unlockLv: 21,
+    maxLv: 5,
+    desc: "Anında %35 can + 6sn rejenerasyon; yakındaki dostları da onarır.",
+    lvlDesc: (lv) =>
+      `anında %${28 + lv * 5} · rejenerasyon ${6 + lv * 2}/s · dost menzil ${340 + lv * 24}`,
+  },
+  gravity: {
+    key: "gravity",
+    name: "Kütle Kuyusu",
+    hotkey: "H",
+    unlockLv: 23,
+    maxLv: 5,
+    desc: "Yere kütle kuyusu bırakır — düşmanları çeker, %40 yavaşlatır.",
+    lvlDesc: (lv) => `çekim ${160 + lv * 22} · yarıçap ${180 + lv * 18} · süre ${5 + lv * 0.6}s`,
+  },
+  orbital: {
+    key: "orbital",
+    name: "Yörünge Vuruşu",
+    hotkey: "Y",
+    unlockLv: 25,
+    maxLv: 5,
+    desc: "1.8sn sonra yörüngeden lazer yağar — devasa alan hasarı + yakma.",
+    lvlDesc: (lv) => `hasar ${160 + lv * 32} · yarıçap ${150 + lv * 12} · yakma ${3 + lv}s`,
   },
 };

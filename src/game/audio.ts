@@ -166,6 +166,55 @@ export class AudioEngine {
           this.tone("triangle", f, f, 0.26, 0.16, i * 0.16),
         );
         break;
+      case "shieldbreak":
+        this.tone("square", 1200, 200, 0.18, 0.2 * vol);
+        this.noise(0.12, 4200, 0.16 * vol);
+        break;
+      case "emp":
+        this.tone("square", 900, 120, 0.35, 0.18 * vol);
+        this.noise(0.4, 3200, 0.22 * vol, 0.8, 800);
+        break;
+      case "nanite":
+        [660, 880, 1100].forEach((f, i) =>
+          this.tone("sine", f, f * 1.02, 0.18, 0.12 * vol, i * 0.07),
+        );
+        break;
+      case "cloak":
+        this.tone("sine", 300, 900, 0.28, 0.11 * vol);
+        this.tone("sine", 900, 300, 0.32, 0.09 * vol, 0.12);
+        break;
+      case "gravity":
+        this.tone("sine", 80, 40, 0.45, 0.18 * vol);
+        this.noise(0.35, 600, 0.12 * vol);
+        break;
+      case "orbital":
+        this.tone("sine", 150, 900, 0.2, 0.14 * vol);
+        this.noise(0.3, 2200, 0.14 * vol);
+        break;
+      case "crate":
+        [880, 1100, 1320].forEach((f, i) => this.tone("sine", f, f, 0.12, 0.12 * vol, i * 0.06));
+        break;
+      case "bosshit":
+        if (!this.throttle("bosshit", 80)) return;
+        this.tone("square", 120, 80, 0.08, 0.1 * vol);
+        break;
+      case "bosskill":
+        this.noise(0.8, 700, 0.45 * vol, 0.7, 80);
+        [220, 196, 147, 98].forEach((f, i) =>
+          this.tone("sawtooth", f, f * 0.9, 0.35, 0.12 * vol, i * 0.14),
+        );
+        break;
+      case "warphop":
+        this.tone("sine", 400, 1200, 0.16, 0.12 * vol);
+        this.tone("sine", 1200, 400, 0.18, 0.1 * vol, 0.08);
+        break;
+      case "combo":
+        [784, 988, 1174].forEach((f, i) => this.tone("sine", f, f, 0.14, 0.14 * vol, i * 0.05));
+        break;
+      case "overcharge":
+        this.tone("square", 180, 720, 0.2, 0.13 * vol);
+        this.noise(0.15, 2800, 0.09 * vol);
+        break;
       default:
         break;
     }
